@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-gate"
+version = "0.1.0"
+description = "Bounded, receipt-bound completion rail for coding sessions"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = []
+authors = [{ name = "Hermes Labs", email = "rbosch@lpci.ai" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/hermes-labs-ai/hermes-gate"
+Repository = "https://github.com/hermes-labs-ai/hermes-gate"
+Issues = "https://github.com/hermes-labs-ai/hermes-gate/issues"
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "ruff==0.15.22"]
+
+[project.scripts]
+hermes-gate = "hermes_gate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hermes_gate = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
