@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import tomllib
 from pathlib import Path
@@ -47,18 +48,30 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
 
     hermes.mkdir(parents=True, exist_ok=True)
     workflow.parent.mkdir(parents=True, exist_ok=True)
-    profile.write_text(_detected_profile(root), encoding="utf-8")
     source = Path(repo_runner.__file__).read_bytes()
-    runner.write_bytes(source)
-    workflow.write_text(_workflow(root), encoding="utf-8")
+    intended = {
+        profile: _detected_profile(root).encode("utf-8"),
+        runner: source,
+        workflow: _workflow(root).encode("utf-8"),
+    }
+    expected_hashes = {
+        str(path.relative_to(root)): hashlib.sha256(content).hexdigest()
+        for path, content in intended.items()
+    }
+    expected_snapshot = {
+        str(path.relative_to(root)): (
+            f"SYMLINK:{os.readlink(path)}:FILE:{expected_hashes[str(path.relative_to(root))]}"
+            if path.is_symlink() else expected_hashes[str(path.relative_to(root))]
+        )
+        for path in targets
+    }
+    for path, content in intended.items():
+        path.write_bytes(content)
     runner_sha = hashlib.sha256(source).hexdigest()
     manifest = {
         "schema": "hermes-gate/install-v1",
         "repository": repo_identity(root),
-        "files": {
-            str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in targets
-        },
+        "files": expected_hashes,
         "runner_sha256": runner_sha,
         "runner_version": repo_runner.RUNNER_VERSION,
         "backups": backup_manifest,
@@ -66,6 +79,8 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     }
     try:
         generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
+        if generated != expected_snapshot:
+            raise ContentReadError("generated integration differs from intended bytes")
     except ContentReadError as exc:
         restored, removed, rollback_error = _rollback_generated_targets(
             root, targets, existing, backup_root

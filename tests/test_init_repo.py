@@ -161,3 +161,72 @@ def test_generated_runner_and_central_fast_have_status_parity(tmp_path: Path) ->
     )
     generated = json.loads(proc.stdout)
     assert central["status"] == generated["status"] == "PASS"
+
+
+@pytest.mark.parametrize("relative", [
+    ".hermes/gate.toml",
+    ".hermes/hermes_gate_runner.py",
+    ".github/workflows/hermes-quality.yml",
+])
+@pytest.mark.parametrize("force", [False, True])
+def test_init_rolls_back_truncation_before_manifest_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str, force: bool
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    target = root / relative
+    if force:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"owner bytes\n")
+    original_write_text = Path.write_text
+    original_write_bytes = Path.write_bytes
+
+    def truncate(path: Path) -> None:
+        if path == target:
+            with path.open("r+b") as handle:
+                handle.truncate(1)
+
+    def write_text(path: Path, *args: object, **kwargs: object) -> int:
+        result = original_write_text(path, *args, **kwargs)
+        truncate(path)
+        return result
+
+    def write_bytes(path: Path, data: bytes) -> int:
+        result = original_write_bytes(path, data)
+        truncate(path)
+        return result
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+
+    outcome = initialize(root, force=force)
+
+    assert outcome["status"] == "PARKED"
+    assert "was rolled back" in outcome["reason"]
+    for generated in (".hermes/gate.toml", ".hermes/hermes_gate_runner.py",
+                      ".github/workflows/hermes-quality.yml"):
+        path = root / generated
+        if force and path == target:
+            assert path.read_bytes() == b"owner bytes\n"
+        else:
+            assert not path.exists()
+    state = git_dir(root) / "hermes-gate"
+    assert not (state / "install.json").exists()
+    assert not (state / "baseline.json").exists()
+
+
+
+def test_init_preserves_existing_symlink_identity_when_forced(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    profile = root / ".hermes" / "gate.toml"
+    profile.parent.mkdir()
+    (profile.parent / "owner.toml").write_bytes(b"owner profile\n")
+    profile.symlink_to("./owner.toml")
+
+    assert initialize(root, force=True)["status"] == "PASS"
+    assert profile.is_symlink()
+    assert uninstall(root)["status"] == "PASS"
+    assert profile.read_bytes() == b"owner profile\n"
