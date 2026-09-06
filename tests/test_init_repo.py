@@ -64,6 +64,9 @@ def test_init_parks_without_manifest_when_post_write_snapshot_is_incomplete(
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q")
+    profile = root / ".hermes" / "gate.toml"
+    profile.parent.mkdir()
+    profile.write_text("owner profile\n", encoding="utf-8")
     original_snapshot = init_repo.snapshot
     calls = 0
 
@@ -76,11 +79,13 @@ def test_init_parks_without_manifest_when_post_write_snapshot_is_incomplete(
 
     monkeypatch.setattr(init_repo, "snapshot", interrupted_snapshot)
 
-    outcome = initialize(root)
+    outcome = initialize(root, force=True)
 
     assert outcome["status"] == "PARKED"
-    assert "rerun hermes-gate init --force" in outcome["reason"]
-    assert (root / ".hermes" / "gate.toml").exists()
+    assert "was rolled back" in outcome["reason"]
+    assert profile.read_text(encoding="utf-8") == "owner profile\n"
+    assert not (root / ".hermes" / "hermes_gate_runner.py").exists()
+    assert not (root / ".github" / "workflows" / "hermes-quality.yml").exists()
     assert not (git_dir(root) / "hermes-gate" / "install.json").exists()
     assert not (git_dir(root) / "hermes-gate" / "baseline.json").exists()
 

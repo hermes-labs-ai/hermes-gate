@@ -60,11 +60,22 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     try:
         generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
     except ContentReadError as exc:
+        restored, removed, rollback_error = _rollback_generated_targets(
+            root, targets, existing, backup_root
+        )
+        if rollback_error:
+            return {
+                "status": "ERROR",
+                "reason": (
+                    "generated integration could not be bound to complete bytes and rollback failed: "
+                    f"{rollback_error}; preserve the checkout before retrying"
+                ),
+            }
         return {
             "status": "PARKED",
             "reason": (
-                "generated integration could not be bound to complete bytes: "
-                f"{exc}; recover storage, then rerun hermes-gate init --force"
+                "generated integration could not be bound to complete bytes and was rolled back: "
+                f"{exc}; restored {restored}, removed {removed}; recover storage, then rerun"
             ),
         }
     baseline = {"repository": repo_identity(root), "dirty": {**preflight_snapshot, **generated}}
@@ -85,6 +96,29 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
         "adapter_status": "NATIVE_DEFAULT",
         "reason": "repository-native commands remain active; primitive adapters are opt-in",
     }
+
+
+def _rollback_generated_targets(
+    root: Path, targets: list[Path], existing: list[Path], backup_root: Path
+) -> tuple[list[str], list[str], str | None]:
+    restored: list[str] = []
+    removed: list[str] = []
+    existing_set = set(existing)
+    try:
+        for target in targets:
+            relative = target.relative_to(root)
+            if target in existing_set:
+                backup = backup_root / relative
+                if not backup.is_file():
+                    return restored, removed, f"missing backup for {relative}"
+                shutil.copy2(backup, target)
+                restored.append(str(relative))
+            elif target.exists():
+                target.unlink()
+                removed.append(str(relative))
+    except OSError as exc:
+        return restored, removed, str(exc)
+    return restored, removed, None
 
 
 def uninstall(root: Path) -> dict[str, Any]:
