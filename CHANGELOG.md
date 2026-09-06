@@ -6,6 +6,12 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Release checks bind the GitHub tag, package and runner versions, tracked runner,
+  wheel/sdist metadata, and packaged source bytes before build and again before PyPI upload.
+- The quickstart now includes installation from the published PyPI package.
+
 ## [0.1.2] - 2026-09-06
 
 ### Fixed
