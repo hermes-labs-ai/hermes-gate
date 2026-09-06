@@ -28,6 +28,16 @@ reviewable `.hermes/gate.toml`, a checksum-bound stdlib runner, and a CI
 workflow. Existing integration files are not overwritten unless
 `hermes-gate init --force` is explicit.
 
+The copied runner also requires Python 3.11 or newer, even when the project
+it checks supports older Python versions. Run Gate under a supported interpreter;
+profile commands may select the project's own interpreter separately.
+
+New default whitespace checks inspect selected working-tree, staged and untracked
+files using Git's whitespace rules. Existing profiles are preserved; adopting the
+new check in an existing repository requires a reviewed runner/profile update.
+The copied runner drains stdout and stderr concurrently while retaining at most
+32 KiB of each stream; its truncation flag reports any discarded output.
+
 ## Completion workflows
 
 | Workflow | Use it for | Receipt boundary |

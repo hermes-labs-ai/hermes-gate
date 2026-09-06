@@ -183,8 +183,9 @@ def _detected_profile(root: Path) -> str:
             full.append(("test", [manager, "test", "--", "--runInBand"], 180.0, ["**/*"]))
         if "build" in package:
             full.append(("build", [manager, "run", "build"], 180.0, ["**/*"]))
+    diff_argv = ["python3", ".hermes/hermes_gate_runner.py", "diff-check", "{files}"]
     if not full:
-        full.append(("diff-check", ["git", "diff", "--check"], 10.0, ["**/*"]))
+        full.append(("diff-check", diff_argv, 10.0, ["**/*"]))
     lines = [
         "version = 1",
         "",
@@ -215,7 +216,7 @@ def _detected_profile(root: Path) -> str:
         'material_categories = ["correctness", "security", "data-loss", "concurrency", "api-contract"]',
         "fallback_argv = []",
     ]
-    fast.append(("diff-check", ["git", "diff", "--check"], 4.0, ["**/*"]))
+    fast.append(("diff-check", diff_argv, 4.0, ["**/*"]))
     for table, commands in (("fast", fast), ("full", full), ("repair", repair)):
         for name, argv, timeout, globs in commands:
             lines.extend(

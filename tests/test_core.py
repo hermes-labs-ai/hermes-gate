@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import runpy
 import subprocess
 import sys
@@ -187,19 +188,18 @@ def test_copied_runner_tolerates_process_group_exiting_before_term(
 ) -> None:
     class ExitedProcess:
         pid = 43210
-        returncode = 0
+        returncode = None
 
         def __init__(self) -> None:
-            self.calls = 0
+            self.stdout = io.BytesIO()
+            self.stderr = io.BytesIO()
 
-        def communicate(self, timeout: float | None = None) -> tuple[bytes, bytes]:
-            self.calls += 1
-            if self.calls == 1:
-                raise subprocess.TimeoutExpired(["probe"], timeout or 0)
-            return b"", b""
-
-        def poll(self) -> int:
+        def wait(self, timeout: float | None = None) -> int:
+            self.returncode = 0
             return 0
+
+        def poll(self) -> int | None:
+            return self.returncode
 
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: ExitedProcess())
     monkeypatch.setattr(
