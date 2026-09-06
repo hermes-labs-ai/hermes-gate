@@ -57,16 +57,25 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
         "backups": backup_manifest,
         "rollback": "hermes-gate uninstall-repo",
     }
+    try:
+        generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
+    except ContentReadError as exc:
+        return {
+            "status": "PARKED",
+            "reason": (
+                "generated integration could not be bound to complete bytes: "
+                f"{exc}; recover storage, then rerun hermes-gate init --force"
+            ),
+        }
+    baseline = {"repository": repo_identity(root), "dirty": {**preflight_snapshot, **generated}}
+    state_path = git_dir(root) / "hermes-gate" / "baseline.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(baseline, sort_keys=True) + "\n", encoding="utf-8")
     manifest_path = _install_manifest_path(root)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
-    baseline = {"repository": repo_identity(root), "dirty": {**preflight_snapshot, **generated}}
-    state_path = git_dir(root) / "hermes-gate" / "baseline.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(baseline, sort_keys=True) + "\n", encoding="utf-8")
     return {
         "status": "PASS",
         "profile": str(profile),

@@ -6,9 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+import hermes_gate.init_repo as init_repo
 from hermes_gate.init_repo import initialize, uninstall, verify_runner
 from hermes_gate.engine import fast
-from hermes_gate.gitstate import git_dir
+from hermes_gate.gitstate import ContentReadError, git_dir
 
 
 def git(root: Path, *args: str) -> None:
@@ -53,6 +56,33 @@ def test_init_refuses_overwrite_without_force(tmp_path: Path) -> None:
     outcome = initialize(root)
     assert outcome["status"] == "PARKED"
     assert (root / ".hermes" / "gate.toml").read_text(encoding="utf-8") == "owner bytes\n"
+
+
+def test_init_parks_without_manifest_when_post_write_snapshot_is_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    original_snapshot = init_repo.snapshot
+    calls = 0
+
+    def interrupted_snapshot(*args: object, **kwargs: object) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ContentReadError("short read for generated profile")
+        return original_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(init_repo, "snapshot", interrupted_snapshot)
+
+    outcome = initialize(root)
+
+    assert outcome["status"] == "PARKED"
+    assert "rerun hermes-gate init --force" in outcome["reason"]
+    assert (root / ".hermes" / "gate.toml").exists()
+    assert not (git_dir(root) / "hermes-gate" / "install.json").exists()
+    assert not (git_dir(root) / "hermes-gate" / "baseline.json").exists()
 
 
 def test_uninstall_preflights_all_targets_before_restoring_any(tmp_path: Path) -> None:
