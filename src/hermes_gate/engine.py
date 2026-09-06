@@ -42,14 +42,15 @@ def fast(root: Path, *, files: list[str] | None = None) -> dict[str, Any]:
     status = Status(str(runner_result["status"]))
     reason = str(runner_result.get("reason", ""))
     elapsed = time.monotonic() - started
-    if status in {Status.PASS, Status.NOT_APPLICABLE} and _lintlang_applies(config, selected):
+    lintlang_paths = [path for path in selected if os.path.lexists(root / path)]
+    if status in {Status.PASS, Status.NOT_APPLICABLE} and _lintlang_applies(config, lintlang_paths):
         remaining = config.fast_budget_seconds - elapsed
         if remaining <= 0:
             status, reason = Status.FAIL, "fast budget exhausted before LintLang"
         else:
             check = _run_spec(
                 config.lintlang.argv,
-                selected,
+                lintlang_paths,
                 root,
                 min(config.lintlang.timeout_seconds, remaining),
                 "lintlang",

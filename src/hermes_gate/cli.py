@@ -21,7 +21,7 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="hermes-gate", description="Bounded session-wide completion rail"
     )
-    root.add_argument("--version", action="version", version="hermes-gate 0.1.1")
+    root.add_argument("--version", action="version", version="hermes-gate 0.1.2")
     sub = root.add_subparsers(dest="command", required=True)
     init = sub.add_parser(
         "init", help="install a repository profile, runner, workflow, and baseline"

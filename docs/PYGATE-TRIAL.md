@@ -4,7 +4,7 @@ The earlier PyGate 0.1.2 adapter rejection is historical. That package lacked th
 argv, timeout, external-output, stable-version, and shared-result properties
 HermesGate requires.
 
-HermesGate 0.1.1 accepts only explicit, preinstalled adapters that meet these
+HermesGate 0.1.2 accepts only explicit, preinstalled adapters that meet these
 floors:
 
 - PyGate 0.2.0 or newer

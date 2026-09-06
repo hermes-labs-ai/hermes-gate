@@ -405,6 +405,33 @@ def test_conditional_lintlang_runs_once_for_ai_files_and_zero_for_source(repo: P
     assert counter.read_text(encoding="utf-8") == "1"
 
 
+def test_lintlang_skips_deleted_trigger_paths(repo: Path) -> None:
+    lint_command = [
+        sys.executable,
+        "-c",
+        "from pathlib import Path; import sys; [Path(path).read_text() for path in sys.argv[1:]]",
+        "{files}",
+    ]
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile = profile_path.read_text(encoding="utf-8")
+    profile = profile.replace("enabled = false", "enabled = true", 1)
+    profile = profile.replace(
+        'argv = ["lintlang", "scan", "{files}"]', f"argv = {json.dumps(lint_command)}"
+    )
+    profile = profile.replace("trigger_globs = []", 'trigger_globs = ["**/AGENTS.md"]')
+    profile_path.write_text(profile, encoding="utf-8")
+    guidance = repo / "AGENTS.md"
+    guidance.write_text("agent guidance\n", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "baseline")
+    guidance.unlink()
+
+    outcome = fast(repo)
+
+    assert outcome["status"] == "NOT_APPLICABLE"
+
+
 def test_review_nonzero_exit_never_creates_pass_receipt(repo: Path) -> None:
     write_profile(repo)
     profile_path = repo / ".hermes" / "gate.toml"

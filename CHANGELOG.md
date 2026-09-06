@@ -6,6 +6,13 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-06
+
+### Fixed
+
+- Fast checks now skip deleted paths instead of invoking file-based checks on
+  files that no longer exist in the worktree.
+
 ## [0.1.1] - 2026-09-06
 
 ### Fixed
@@ -27,6 +34,7 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 - Optional isolated PyGate 0.2.0+ and QuickGate.js 0.2.3+ adapters.
 - Git-internal runtime state, command-version receipts, OSS policy files, and package schema data.
 
-[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.2
 [0.1.1]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.1
 [0.1.0]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.0

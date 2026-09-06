@@ -18,7 +18,7 @@ if sys.version_info < (3, 11):
 
 import tomllib
 
-RUNNER_VERSION = "0.1.1"
+RUNNER_VERSION = "0.1.2"
 OUTPUT_CAP = 65536
 
 
@@ -62,6 +62,7 @@ def run(
     except Exception as exc:
         return _result(mode, "ERROR", started, [], f"invalid profile: {exc}")
     paths = list(files) if files is not None else _changed(root)
+    paths = [path for path in paths if os.path.lexists(root / path)]
     exclusions = config.get("gate", {}).get("exclusions", [])
     paths = [path for path in paths if not any(_match(path, pattern) for pattern in exclusions)]
     if mode == "fast" and not paths:

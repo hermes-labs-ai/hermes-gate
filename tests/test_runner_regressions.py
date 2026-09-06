@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from hermes_gate.init_repo import initialize
-from hermes_gate.repo_runner import _execute
+from hermes_gate.repo_runner import _execute, run
 
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
@@ -56,6 +56,67 @@ def test_generated_whitespace_check_covers_git_states(
     assert result["status"] == ("FAIL" if bad else "PASS"), result
     if bad:
         assert "trailing whitespace" in result["checks"][-1]["stdout"]
+
+
+def test_fast_skips_deleted_paths_before_file_checks(tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.name", "Fixture")
+    git("config", "user.email", "fixture@example.com")
+    hermes = tmp_path / ".hermes"
+    hermes.mkdir()
+    (hermes / "gate.toml").write_text(
+        """version = 1
+[gate]
+exclusions = [".git/**"]
+
+[[fast]]
+name = "python-parse"
+argv = ["python3", "-c", "import pathlib,sys; [pathlib.Path(path).read_text() for path in sys.argv[1:]]", "{files}"]
+timeout_seconds = 2.0
+globs = ["**/*.py"]
+""",
+        encoding="utf-8",
+    )
+    source = tmp_path / "deleted.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-qm", "baseline")
+    source.unlink()
+
+    result = run("fast", root=tmp_path)
+
+    assert result["status"] == "NOT_APPLICABLE"
+    assert result["reason"] == "no changed files"
+
+
+def test_fast_keeps_dangling_symlink_paths(tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    hermes = tmp_path / ".hermes"
+    hermes.mkdir()
+    (hermes / "gate.toml").write_text(
+        """version = 1
+[gate]
+exclusions = [".git/**"]
+
+[[fast]]
+name = "path-observer"
+argv = ["python3", "-c", "import sys; raise SystemExit(0 if sys.argv[1:] == ['link.py'] else 1)", "{files}"]
+timeout_seconds = 2.0
+globs = ["**/*.py"]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "link.py").symlink_to("missing.py")
+
+    result = run("fast", root=tmp_path)
+
+    assert result["status"] == "PASS"
 
 
 def test_unsupported_runner_runtime_has_actionable_error(tmp_path: Path) -> None:
