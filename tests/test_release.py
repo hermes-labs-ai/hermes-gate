@@ -5,6 +5,7 @@ import io
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tomllib
 import zipfile
@@ -26,7 +27,7 @@ ReleaseError = MODULE.ReleaseError
 def built_dist(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("release") / "repo"
     shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git", ".venv", "dist"))
-    subprocess.run(["python3", "-m", "build", "--outdir", str(root / "dist")], cwd=root, check=True)
+    subprocess.run([sys.executable, "-m", "build", "--outdir", str(root / "dist")], cwd=root, check=True)
     return root
 
 
