@@ -17,6 +17,13 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     runner = hermes / "hermes_gate_runner.py"
     workflow = root / ".github" / "workflows" / "hermes-quality.yml"
     targets = [profile, runner, workflow]
+    dangling = [path for path in targets if path.is_symlink() and not path.exists()]
+    if dangling:
+        return {
+            "status": "PARKED",
+            "reason": "refusing to overwrite dangling integration symlink(s); preserve them manually",
+            "existing": [str(path.relative_to(root)) for path in dangling],
+        }
     existing = [path for path in targets if path.exists()]
     if existing and not force:
         return {

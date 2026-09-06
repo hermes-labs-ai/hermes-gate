@@ -58,6 +58,22 @@ def test_init_refuses_overwrite_without_force(tmp_path: Path) -> None:
     assert (root / ".hermes" / "gate.toml").read_text(encoding="utf-8") == "owner bytes\n"
 
 
+def test_init_refuses_dangling_integration_symlink_even_when_forced(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    profile = root / ".hermes" / "gate.toml"
+    profile.parent.mkdir()
+    profile.symlink_to("missing-profile.toml")
+
+    outcome = initialize(root, force=True)
+
+    assert outcome["status"] == "PARKED"
+    assert outcome["existing"] == [".hermes/gate.toml"]
+    assert profile.is_symlink()
+    assert not (profile.parent / "missing-profile.toml").exists()
+
+
 def test_init_parks_without_manifest_when_post_write_snapshot_is_incomplete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
