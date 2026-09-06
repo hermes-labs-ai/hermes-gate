@@ -10,6 +10,7 @@ from packaging.version import Version
 
 
 def check_version(candidate: str, releases: dict) -> None:
+    """Reject a candidate when PyPI already has a newer nonempty release."""
     version = Version(candidate)
     newer = [Version(value) for value, files in releases.items() if files and Version(value) > version]
     if newer:
@@ -17,6 +18,7 @@ def check_version(candidate: str, releases: dict) -> None:
 
 
 def main() -> None:
+    """Validate the sole downloaded wheel against current PyPI releases."""
     wheels = list(Path("dist").glob("*.whl"))
     if len(wheels) != 1:
         raise ValueError("Expected exactly one release wheel")
