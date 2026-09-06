@@ -10,18 +10,23 @@ authorize a push, pull request, or release.
 
 ## Five-minute quickstart
 
-From a local checkout of HermesGate:
+Install the published package, then enter the repository you want to gate:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install .
+python -m pip install hermes-gate
 cd /path/to/your/git-repository
 hermes-gate init
 hermes-gate fast
 hermes-gate full
 hermes-gate doctor
 ```
+
+For HermesGate development, run `python -m pip install .` from a local checkout
+instead. Release builds verify the tag, package and runner versions, tracked
+runner, distribution metadata, and packaged source bytes before upload; they also reject versions
+superseded on PyPI after environment approval.
 
 `init` detects repository-native Python or JavaScript commands and writes a
 reviewable `.hermes/gate.toml`, a checksum-bound stdlib runner, and a CI

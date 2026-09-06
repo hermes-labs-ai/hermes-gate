@@ -17,8 +17,16 @@ jobs:
           python-version: "3.12"
       - name: Install build tooling
         run: python -m pip install --upgrade build
+      - name: Verify release source identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/verify_release.py --tag "$RELEASE_TAG"
       - name: Build distributions
         run: python -m build
+      - name: Verify release artifact identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/verify_release.py --tag "$RELEASE_TAG" --dist dist
       - uses: actions/upload-artifact@v4
         with:
           name: python-package-distributions
@@ -51,6 +59,10 @@ jobs:
           name: python-package-distributions
           path: dist/
       # Runs after environment approval, against the actual downloaded artifact.
+      - name: Verify downloaded artifact identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python scripts/verify_release.py --tag "$RELEASE_TAG" --dist dist
       - name: Reject superseded package
         run: python .github/scripts/check_pypi_version.py
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
