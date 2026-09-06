@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import repo_runner
-from .gitstate import git_dir, repo_identity, snapshot
+from .gitstate import ContentReadError, git_dir, repo_identity, snapshot
 
 
 def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
@@ -24,6 +24,10 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
             "reason": "refusing to overwrite existing integration; rerun with --force after review",
             "existing": [str(path.relative_to(root)) for path in existing],
         }
+    try:
+        preflight_snapshot = snapshot(root)
+    except ContentReadError as exc:
+        return {"status": "PARKED", "reason": f"cannot read complete repository bytes: {exc}"}
     backup_root = git_dir(root) / "hermes-gate" / "install-backup"
     backup_root.mkdir(parents=True, exist_ok=True)
     backup_manifest: dict[str, str] = {}
@@ -58,7 +62,8 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    baseline = {"repository": repo_identity(root), "dirty": snapshot(root)}
+    generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
+    baseline = {"repository": repo_identity(root), "dirty": {**preflight_snapshot, **generated}}
     state_path = git_dir(root) / "hermes-gate" / "baseline.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(baseline, sort_keys=True) + "\n", encoding="utf-8")

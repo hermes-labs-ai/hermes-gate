@@ -9,7 +9,7 @@ from typing import Any
 from .codex_install import installed as codex_installed
 from .config import ConfigError, load_config
 from .execution import run_argv
-from .gitstate import diff_digest, repo_root, scope_paths
+from .gitstate import ContentReadError, diff_digest, repo_root, scope_paths
 from .init_repo import verify_runner
 from .receipts import read_receipt
 from .status import Status
@@ -79,22 +79,28 @@ def diagnose(start: Path | None = None) -> dict[str, Any]:
     except ConfigError as exc:
         profile = {"status": "ERROR", "reason": str(exc)}
     runner_ok, runner_detail = verify_runner(root)
-    digest = diff_digest(root, scope_paths(root))
+    try:
+        digest = diff_digest(root, scope_paths(root))
+        input_error = None
+    except ContentReadError as exc:
+        digest = None
+        input_error = str(exc)
     receipts: dict[str, Any] = {}
     for kind in ("fast", "review", "full"):
         receipt = read_receipt(root, kind)
         receipts[kind] = {
             "status": "MISSING" if receipt is None else receipt.get("status", "ERROR"),
-            "stale": bool(receipt and receipt.get("diff_sha256") != digest),
+            "stale": bool(receipt and (digest is None or receipt.get("diff_sha256") != digest)),
         }
     statuses = [profile["status"], "PASS" if runner_ok else "NOT_CONFIGURED"]
-    overall = "PASS" if all(item == "PASS" for item in statuses) else "NOT_CONFIGURED"
+    overall = "ERROR" if input_error else ("PASS" if all(item == "PASS" for item in statuses) else "NOT_CONFIGURED")
     return {
         "schema": "hermes-gate/doctor-v1",
         "status": overall,
         "repository": str(root),
         "profile": profile,
         "runner": {"status": "PASS" if runner_ok else "NOT_CONFIGURED", "detail": runner_detail},
+        **({"input_error": input_error} if input_error else {}),
         "codex": codex,
         "provider": provider,
         "receipts": receipts,
