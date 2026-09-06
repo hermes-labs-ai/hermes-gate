@@ -13,9 +13,10 @@ import pytest
 from hermes_gate.config import ConfigError, load_config
 from hermes_gate.engine import _provider_review_argv, _tool_version, boundary, fast, repair, review
 from hermes_gate.execution import run_argv
-from hermes_gate.gitstate import diff_digest, session_changed_paths, snapshot
+from hermes_gate.gitstate import ContentReadError, diff_digest, session_changed_paths, snapshot
 from hermes_gate.receipts import valid_receipt
 from hermes_gate.repo_runner import _execute
+from hermes_gate.status import Status
 
 
 def git(root: Path, *args: str) -> None:
@@ -255,6 +256,61 @@ def test_snapshot_binds_symlink_identity_and_target_bytes(repo: Path) -> None:
     assert first["link.py"] != second["link.py"]
 
 
+def test_snapshot_rejects_a_short_read_of_a_nonempty_file(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = repo / "source.py"
+    source.write_bytes(b"declared bytes")
+    original_open = Path.open
+
+    def short_read(path: Path, *args: object, **kwargs: object) -> io.BytesIO | object:
+        if path == source and (args[:1] == ("rb",) or kwargs.get("mode") == "rb"):
+            return io.BytesIO(b"")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", short_read)
+
+    with pytest.raises(ContentReadError, match="short read.*expected 14 bytes, got 0"):
+        snapshot(repo, ["source.py"])
+
+
+def test_snapshot_streams_declared_file_bytes(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = repo / "source.py"
+    source.write_bytes(b"declared bytes")
+    original_read_bytes = Path.read_bytes
+
+    def no_read_bytes(path: Path) -> bytes:
+        if path == source:
+            raise AssertionError("snapshot must stream file bytes")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", no_read_bytes)
+
+    assert snapshot(repo, ["source.py"])["source.py"] == "fb97a2ca3f3b9f557e8537aa5199ff34cdfd854e9492a52ba9c63ae1386a239f"
+
+
+def test_fast_returns_error_without_receipt_for_a_short_read(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    source = repo / "source.py"
+    source.write_bytes(b"declared bytes")
+    original_open = Path.open
+
+    def short_read(path: Path, *args: object, **kwargs: object) -> io.BytesIO | object:
+        if path == source and (args[:1] == ("rb",) or kwargs.get("mode") == "rb"):
+            return io.BytesIO(b"")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", short_read)
+
+    outcome = fast(repo, files=["source.py"])
+
+    assert outcome["status"] == Status.ERROR
+    assert "short read" in outcome["reason"]
+    assert "receipt" not in outcome
+
+
 def test_snapshot_keeps_symlink_identity_when_target_is_unreadable(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -262,14 +318,14 @@ def test_snapshot_keeps_symlink_identity_when_target_is_unreadable(
     target.write_text("protected = True\n", encoding="utf-8")
     link = repo / "link.py"
     link.symlink_to("target.py")
-    original = Path.read_bytes
+    original = Path.open
 
-    def unreadable(path: Path) -> bytes:
+    def unreadable(path: Path, *args: object, **kwargs: object) -> object:
         if path == link:
             raise PermissionError("fixture")
-        return original(path)
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", unreadable)
+    monkeypatch.setattr(Path, "open", unreadable)
 
     assert snapshot(repo, ["link.py"])["link.py"] == "SYMLINK:target.py:UNREADABLE:PermissionError"
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import repo_runner
-from .gitstate import git_dir, repo_identity, snapshot
+from .gitstate import ContentReadError, git_dir, repo_identity, snapshot
 
 
 def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
@@ -17,6 +17,13 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     runner = hermes / "hermes_gate_runner.py"
     workflow = root / ".github" / "workflows" / "hermes-quality.yml"
     targets = [profile, runner, workflow]
+    dangling = [path for path in targets if path.is_symlink() and not path.exists()]
+    if dangling:
+        return {
+            "status": "PARKED",
+            "reason": "refusing to overwrite dangling integration symlink(s); preserve them manually",
+            "existing": [str(path.relative_to(root)) for path in dangling],
+        }
     existing = [path for path in targets if path.exists()]
     if existing and not force:
         return {
@@ -24,6 +31,10 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
             "reason": "refusing to overwrite existing integration; rerun with --force after review",
             "existing": [str(path.relative_to(root)) for path in existing],
         }
+    try:
+        preflight_snapshot = snapshot(root)
+    except ContentReadError as exc:
+        return {"status": "PARKED", "reason": f"cannot read complete repository bytes: {exc}"}
     backup_root = git_dir(root) / "hermes-gate" / "install-backup"
     backup_root.mkdir(parents=True, exist_ok=True)
     backup_manifest: dict[str, str] = {}
@@ -53,15 +64,36 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
         "backups": backup_manifest,
         "rollback": "hermes-gate uninstall-repo",
     }
+    try:
+        generated = snapshot(root, [str(path.relative_to(root)) for path in targets])
+    except ContentReadError as exc:
+        restored, removed, rollback_error = _rollback_generated_targets(
+            root, targets, existing, backup_root
+        )
+        if rollback_error:
+            return {
+                "status": "ERROR",
+                "reason": (
+                    "generated integration could not be bound to complete bytes and rollback failed: "
+                    f"{rollback_error}; preserve the checkout before retrying"
+                ),
+            }
+        return {
+            "status": "PARKED",
+            "reason": (
+                "generated integration could not be bound to complete bytes and was rolled back: "
+                f"{exc}; restored {restored}, removed {removed}; recover storage, then rerun"
+            ),
+        }
+    baseline = {"repository": repo_identity(root), "dirty": {**preflight_snapshot, **generated}}
+    state_path = git_dir(root) / "hermes-gate" / "baseline.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(baseline, sort_keys=True) + "\n", encoding="utf-8")
     manifest_path = _install_manifest_path(root)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    baseline = {"repository": repo_identity(root), "dirty": snapshot(root)}
-    state_path = git_dir(root) / "hermes-gate" / "baseline.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(baseline, sort_keys=True) + "\n", encoding="utf-8")
     return {
         "status": "PASS",
         "profile": str(profile),
@@ -71,6 +103,29 @@ def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
         "adapter_status": "NATIVE_DEFAULT",
         "reason": "repository-native commands remain active; primitive adapters are opt-in",
     }
+
+
+def _rollback_generated_targets(
+    root: Path, targets: list[Path], existing: list[Path], backup_root: Path
+) -> tuple[list[str], list[str], str | None]:
+    restored: list[str] = []
+    removed: list[str] = []
+    existing_set = set(existing)
+    try:
+        for target in targets:
+            relative = target.relative_to(root)
+            if target in existing_set:
+                backup = backup_root / relative
+                if not backup.is_file():
+                    return restored, removed, f"missing backup for {relative}"
+                shutil.copy2(backup, target)
+                restored.append(str(relative))
+            elif target.exists():
+                target.unlink()
+                removed.append(str(relative))
+    except OSError as exc:
+        return restored, removed, str(exc)
+    return restored, removed, None
 
 
 def uninstall(root: Path) -> dict[str, Any]:

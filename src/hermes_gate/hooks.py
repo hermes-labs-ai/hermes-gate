@@ -10,7 +10,7 @@ from typing import Any
 from .classification import is_code_path
 from .command_detection import detect_boundary_command
 from .engine import boundary, fast
-from .gitstate import repo_root, session_changed_paths, snapshot
+from .gitstate import ContentReadError, repo_root, session_changed_paths, snapshot
 from .status import Status
 
 
@@ -32,13 +32,20 @@ def session_start(payload: dict[str, Any]) -> dict[str, Any]:
     path = _session_path(session_id, root)
     source = str(payload.get("source") or "startup")
     if source not in {"resume", "compact"} or not path.exists():
+        try:
+            baseline = snapshot(root)
+        except ContentReadError as exc:
+            return {
+                "continue": True,
+                "systemMessage": f"Hermes Gate cannot bind session state: {exc}",
+            }
         _atomic_json(
             path,
             {
                 "schema": "hermes-gate/session-v1",
                 "session_id": session_id,
                 "repository": str(root),
-                "baseline": snapshot(root),
+                "baseline": baseline,
             },
         )
     return {
@@ -62,7 +69,10 @@ def stop(payload: dict[str, Any]) -> dict[str, Any]:
     session_id = str(payload.get("session_id") or "unknown")
     state = _read_json(_session_path(session_id, root))
     baseline = state.get("baseline") if state.get("repository") == str(root) else None
-    files = session_changed_paths(root, baseline if isinstance(baseline, dict) else None)
+    try:
+        files = session_changed_paths(root, baseline if isinstance(baseline, dict) else None)
+    except ContentReadError as exc:
+        return {"continue": True, "systemMessage": f"Hermes Gate cannot inspect session changes: {exc}"}
     files = [path for path in files if is_code_path(path)]
     if not files:
         return {"continue": True}

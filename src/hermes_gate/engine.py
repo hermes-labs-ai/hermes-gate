@@ -13,7 +13,7 @@ from .adapters import run_adapter
 from .config import ConfigError, GateConfig, load_config
 from .classification import is_code_path
 from .execution import Execution, run_argv
-from .gitstate import changed_paths, diff_digest, git, git_dir, scope_paths, staged_paths
+from .gitstate import ContentReadError, changed_paths, diff_digest, git, git_dir, scope_paths, staged_paths
 from .providers import normalize_coderabbit_output
 from .receipts import read_receipt, valid_receipt, write_receipt
 from .repo_runner import run as run_repository
@@ -33,7 +33,9 @@ def fast(root: Path, *, files: list[str] | None = None) -> dict[str, Any]:
         for path in (files if files is not None else scope_paths(root))
         if config.included(path)
     ]
-    digest = diff_digest(root, selected)
+    digest, failure = _digest_or_error(root, selected, "fast", started)
+    if failure:
+        return failure
     cached = valid_receipt(root, "fast", digest)
     if cached:
         return result("fast", Status.PASS, started, receipt=cached, cached=True)
@@ -89,7 +91,9 @@ def full(root: Path) -> dict[str, Any]:
     except ConfigError as exc:
         return result("full", Status.ERROR, started, reason=f"invalid profile: {exc}")
     selected = [path for path in scope_paths(root) if config.included(path)]
-    digest = diff_digest(root, selected)
+    digest, failure = _digest_or_error(root, selected, "full", started)
+    if failure:
+        return failure
     runner_result = _run_gate(config, "full", root, selected)
     status = Status(str(runner_result["status"]))
     receipt = write_receipt(
@@ -124,7 +128,9 @@ def repair(root: Path) -> dict[str, Any]:
         return result("repair", Status.NOT_APPLICABLE, started, reason="no changed files")
     if not config.repair:
         return result("repair", Status.NOT_CONFIGURED, started, reason="no [[repair]] command")
-    digest = diff_digest(root, selected)
+    digest, failure = _digest_or_error(root, selected, "repair", started)
+    if failure:
+        return failure
     state_path = _state_file(root, "repair-budget.json")
     state = _read_json(state_path)
     if state.get("digest") == digest and int(state.get("attempts", 0)) >= 1:
@@ -157,7 +163,9 @@ def review(root: Path) -> dict[str, Any]:
     except ConfigError as exc:
         return result("review", Status.ERROR, started, reason=f"invalid profile: {exc}")
     selected = [path for path in scope_paths(root) if config.included(path)]
-    digest = diff_digest(root, selected)
+    digest, failure = _digest_or_error(root, selected, "review", started)
+    if failure:
+        return failure
     if not valid_receipt(root, "fast", digest):
         return result(
             "review",
@@ -242,7 +250,9 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
     except ConfigError as exc:
         return result("boundary", Status.ERROR, started, reason=f"invalid profile: {exc}")
     selected = [path for path in raw_selected if config.included(path)]
-    digest = diff_digest(root, selected)
+    digest, failure = _digest_or_error(root, selected, "boundary", started)
+    if failure:
+        return failure
     requirements = ["fast"]
     if action in {"push", "pr-create", "pr-ready"}:
         requirements.append("review")
@@ -273,7 +283,25 @@ def _receipt_covers(root: Path, kind: str, selected: list[str]) -> bool:
     checked = receipt.get("checked_paths", []) if receipt else []
     if not receipt or not set(selected).issubset(set(checked)):
         return False
-    return valid_receipt(root, kind, diff_digest(root, checked)) is not None
+    try:
+        digest = diff_digest(root, checked)
+    except ContentReadError:
+        return False
+    return valid_receipt(root, kind, digest) is not None
+
+
+def _digest_or_error(
+    root: Path, selected: list[str], kind: str, started: float
+) -> tuple[str | None, dict[str, Any] | None]:
+    try:
+        return diff_digest(root, selected), None
+    except ContentReadError as exc:
+        return None, result(
+            kind,
+            Status.ERROR,
+            started,
+            reason=f"cannot bind receipt to complete input bytes: {exc}",
+        )
 
 
 def _lintlang_applies(config: GateConfig, files: list[str]) -> bool:

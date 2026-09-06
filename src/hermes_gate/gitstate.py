@@ -13,6 +13,10 @@ class GitError(RuntimeError):
     pass
 
 
+class ContentReadError(RuntimeError):
+    """A path advertised bytes that could not be read faithfully."""
+
+
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     proc = subprocess.run(
         ["git", "-C", str(root), *args],
@@ -111,16 +115,33 @@ def _path_digest(root: Path, relative: str) -> str:
             target_type = "DIRECTORY" if stat.S_ISDIR(target_stat.st_mode) else "OTHER"
             return f"{identity}:{target_type}"
         try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = _digest_exact(path, target_stat.st_size)
         except OSError as exc:
             return f"{identity}:UNREADABLE:{type(exc).__name__}"
         return f"{identity}:FILE:{digest}"
     if path.is_dir():
         return "DIRECTORY"
+    try:
+        expected_size = path.stat().st_size
+        return _digest_exact(path, expected_size)
+    except OSError as exc:
+        raise ContentReadError(f"cannot read {relative}: {type(exc).__name__}") from exc
+
+
+def _digest_exact(path: Path, expected_size: int) -> str:
     digest = hashlib.sha256()
+    actual_size = 0
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        while actual_size <= expected_size:
+            chunk = handle.read(min(1024 * 1024, expected_size - actual_size + 1))
+            if not chunk:
+                break
             digest.update(chunk)
+            actual_size += len(chunk)
+    if actual_size != expected_size:
+        raise ContentReadError(
+            f"short read for {path}: expected {expected_size} bytes, got {actual_size}"
+        )
     return digest.hexdigest()
 
 

@@ -6,9 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+import hermes_gate.init_repo as init_repo
 from hermes_gate.init_repo import initialize, uninstall, verify_runner
 from hermes_gate.engine import fast
-from hermes_gate.gitstate import git_dir
+from hermes_gate.gitstate import ContentReadError, git_dir
 
 
 def git(root: Path, *args: str) -> None:
@@ -53,6 +56,54 @@ def test_init_refuses_overwrite_without_force(tmp_path: Path) -> None:
     outcome = initialize(root)
     assert outcome["status"] == "PARKED"
     assert (root / ".hermes" / "gate.toml").read_text(encoding="utf-8") == "owner bytes\n"
+
+
+def test_init_refuses_dangling_integration_symlink_even_when_forced(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    profile = root / ".hermes" / "gate.toml"
+    profile.parent.mkdir()
+    profile.symlink_to("missing-profile.toml")
+
+    outcome = initialize(root, force=True)
+
+    assert outcome["status"] == "PARKED"
+    assert outcome["existing"] == [".hermes/gate.toml"]
+    assert profile.is_symlink()
+    assert not (profile.parent / "missing-profile.toml").exists()
+
+
+def test_init_parks_without_manifest_when_post_write_snapshot_is_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q")
+    profile = root / ".hermes" / "gate.toml"
+    profile.parent.mkdir()
+    profile.write_text("owner profile\n", encoding="utf-8")
+    original_snapshot = init_repo.snapshot
+    calls = 0
+
+    def interrupted_snapshot(*args: object, **kwargs: object) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ContentReadError("short read for generated profile")
+        return original_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(init_repo, "snapshot", interrupted_snapshot)
+
+    outcome = initialize(root, force=True)
+
+    assert outcome["status"] == "PARKED"
+    assert "was rolled back" in outcome["reason"]
+    assert profile.read_text(encoding="utf-8") == "owner profile\n"
+    assert not (root / ".hermes" / "hermes_gate_runner.py").exists()
+    assert not (root / ".github" / "workflows" / "hermes-quality.yml").exists()
+    assert not (git_dir(root) / "hermes-gate" / "install.json").exists()
+    assert not (git_dir(root) / "hermes-gate" / "baseline.json").exists()
 
 
 def test_uninstall_preflights_all_targets_before_restoring_any(tmp_path: Path) -> None:
