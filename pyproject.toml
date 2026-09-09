@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = []
-authors = [{ name = "Hermes Labs", email = "rbosch@lpci.ai" }]
+authors = [{ name = "Hermes Labs", email = "roli@hermes-labs.ai" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

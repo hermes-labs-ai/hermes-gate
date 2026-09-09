@@ -12,6 +12,13 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   wheel/sdist metadata, and packaged source bytes before build and again before PyPI upload.
 - The quickstart now includes installation from the published PyPI package.
 
+### Changed
+
+- Package author metadata now uses the current Hermes Labs address
+  `roli@hermes-labs.ai`, matching every other published Hermes Labs package.
+  Published 0.1.2 metadata on PyPI is immutable and still carries the legacy
+  address; the corrected value reaches PyPI only with the next release.
+
 ## [0.1.2] - 2026-09-06
 
 ### Fixed
