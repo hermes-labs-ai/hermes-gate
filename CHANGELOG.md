@@ -38,6 +38,11 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   bytes. The resolved range is published to child stages through
   `HERMES_GATE_RANGE`, is used by `diff-check`, and is recorded as `range` on the
   receipt.
+- The test suite isolates itself from the gate that runs it: pytest is a declared
+  gate stage, so `HERMES_GATE_BASE` and `HERMES_GATE_RANGE` are cleared before
+  each test and set explicitly where a test needs them. Without that, fixture
+  repositories would inherit the enclosing repository's base revision and the
+  runner regressions would fail under CI while passing locally.
 - `hermes-gate init` now generates a workflow that checks out with
   `fetch-depth: 0`, passes the pull request base to the gate, and sweeps every
   committed byte with `--all` outside pull requests, so a generated rail reviews

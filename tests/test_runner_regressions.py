@@ -460,3 +460,32 @@ def test_scalar_argv_in_fast_reports_an_error_receipt(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert result["status"] == "ERROR", result
     assert result["reason"] == "argv must be a non-empty string array"
+
+
+def test_fixture_repositories_do_not_inherit_the_enclosing_gate_range(
+    tmp_path: Path,
+) -> None:
+    """pytest runs as a gate stage, so the ambient range must not leak into fixtures."""
+    import os
+
+    from hermes_gate.repo_runner import BASE_ENV, RANGE_ENV
+
+    assert BASE_ENV not in os.environ and RANGE_ENV not in os.environ
+    _range_fixture(tmp_path)
+    _, result = _run_runner(tmp_path, "full")
+    assert result["range"] == ""
+    assert result["status"] == "NOT_APPLICABLE", result
+
+
+def test_runner_tests_survive_an_enclosing_pull_request_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulate CI: an unrelated base in the environment must not reach the fixture."""
+    from hermes_gate.repo_runner import BASE_ENV
+
+    monkeypatch.setenv(BASE_ENV, "f" * 40)
+    base = _range_fixture(tmp_path)
+    # The helper passes an explicit override, which must win over the ambient value.
+    _, result = _run_runner(tmp_path, "full", env={BASE_ENV: base})
+    assert result["range"] == f"{base}...HEAD"
+    assert result["status"] == "FAIL", result
