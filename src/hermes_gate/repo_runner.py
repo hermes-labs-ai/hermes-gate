@@ -18,7 +18,7 @@ if sys.version_info < (3, 11):
 
 import tomllib
 
-RUNNER_VERSION = "0.1.2"
+RUNNER_VERSION = "0.1.3"
 OUTPUT_CAP = 65536
 
 
