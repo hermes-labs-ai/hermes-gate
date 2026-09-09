@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from hermes_gate.init_repo import _workflow as init_repo_workflow
 from hermes_gate.init_repo import initialize
 from hermes_gate.repo_runner import _execute, run
 
@@ -227,11 +228,58 @@ def test_base_environment_variable_selects_the_same_range(tmp_path: Path) -> Non
     assert from_env["status"] == from_flag["status"] == "FAIL"
 
 
-def test_blank_base_environment_variable_keeps_the_local_scope(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("args", "env", "source"),
+    [
+        (("--base", ""), None, "--base"),
+        (("--base=",), None, "--base"),
+        ((), {"HERMES_GATE_BASE": ""}, "HERMES_GATE_BASE"),
+        ((), {"HERMES_GATE_BASE": "   "}, "HERMES_GATE_BASE"),
+    ],
+    ids=["flag-separate", "flag-equals", "env-empty", "env-blank"],
+)
+def test_empty_base_is_an_error_not_the_local_scope(
+    tmp_path: Path, args: tuple[str, ...], env: dict[str, str] | None, source: str
+) -> None:
+    """An explicitly empty base used to fall through to the worktree scope and, on a
+    pristine hosted checkout, report NOT_APPLICABLE over nothing instead of failing."""
     _range_fixture(tmp_path)
-    _, result = _run_runner(tmp_path, "full", env={"HERMES_GATE_BASE": "   "})
+    proc, result = _run_runner(tmp_path, "full", *args, env=env)
+    assert result["status"] == "ERROR", result
+    assert proc.returncode == 2
+    assert result["reason"] == (
+        f"{source} is set but empty; omit it for the local worktree scope or name a revision"
+    )
+    assert result.get("checks", []) == []
+
+
+def test_omitted_base_still_selects_the_local_scope(tmp_path: Path) -> None:
+    _range_fixture(tmp_path)
+    _, result = _run_runner(tmp_path, "full")
     assert result["range"] == ""
     assert result["status"] == "NOT_APPLICABLE", result
+
+
+def test_explicit_base_flag_still_overrides_an_empty_environment(tmp_path: Path) -> None:
+    base = _range_fixture(tmp_path)
+    proc, result = _run_runner(tmp_path, "full", "--base", base, env={"HERMES_GATE_BASE": ""})
+    assert result["status"] == "FAIL", result
+    assert proc.returncode == 1
+    assert result["range"] == f"{base}...HEAD"
+
+
+def test_run_entry_point_distinguishes_absent_from_empty_base(tmp_path: Path) -> None:
+    """The engine-facing run() must not treat an empty base as an omitted one either."""
+    base = _range_fixture(tmp_path)
+    absent = run("full", root=tmp_path)
+    assert absent["status"] == "NOT_APPLICABLE" and absent["range"] == "", absent
+    for empty in ("", "   "):
+        result = run("full", root=tmp_path, base=empty)
+        assert result["status"] == "ERROR", result
+        assert "base revision is empty" in result["reason"]
+        assert result["checks"] == []
+    valid = run("full", root=tmp_path, base=base)
+    assert valid["status"] == "FAIL" and valid["range"] == f"{base}...HEAD", valid
 
 
 def test_unresolvable_base_is_an_error_not_an_empty_change_set(tmp_path: Path) -> None:
@@ -407,6 +455,26 @@ def test_generated_workflow_reviews_the_pull_request_range(tmp_path: Path) -> No
     assert "HERMES_GATE_BASE: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "hermes_gate_runner.py full --all" in workflow
     assert "if: github.event_name == 'pull_request'" in workflow
+
+
+def test_generated_workflow_checkout_does_not_persist_credentials(tmp_path: Path) -> None:
+    """actions/checkout leaves the workflow token in .git/config unless told not to; the
+    gate only reads the checkout, so every generated rail must opt out."""
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
+    assert initialize(tmp_path)["status"] == "PASS"
+    workflow = (tmp_path / ".github/workflows/hermes-quality.yml").read_text(encoding="utf-8")
+    checkout = workflow.index("uses: actions/checkout@v4")
+    next_step = workflow.index("- uses: actions/setup-python@v5")
+    assert "persist-credentials: false" in workflow[checkout:next_step], workflow
+    assert workflow.count("persist-credentials") == 1
+
+
+def test_tracked_workflow_matches_the_generator() -> None:
+    """The repository's own quality rail is a generated artifact and must not drift."""
+    root = Path(__file__).parents[1]
+    tracked = (root / ".github/workflows/hermes-quality.yml").read_text(encoding="utf-8")
+    assert tracked == init_repo_workflow(root)
 
 
 def test_generated_runner_carries_the_review_range_interface(tmp_path: Path) -> None:
