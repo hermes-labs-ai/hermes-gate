@@ -18,12 +18,14 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   reports `NOT_APPLICABLE` rather than PASS.
 - `full` now runs every declared stage and aggregates the failures instead of
   returning at the first non-PASS check, so a multi-stage profile can no longer
-  hide later stages behind an early failure. `fast` keeps its first-failure exit
-  so the local budget still holds.
+  hide later stages behind an early failure. `fast` is unchanged: it keeps both
+  its first-failure exit and its selection guard, so a stage whose globs match
+  nothing is still skipped outright and the local budget still holds.
 - A stage that cannot be launched at all - missing, not executable, or the wrong
   binary format - is that stage's failure rather than the whole gate's, and the
-  remaining declared stages still run. Unusable `argv` declarations are reported
-  as that stage's error, and the run names every unusable and failed stage.
+  remaining declared stages still run. Unusable `argv` declarations, including a
+  scalar where an array is required, are reported as that stage's error instead
+  of raising out of the run, and the run names every unusable and failed stage.
 
 ### Added
 
