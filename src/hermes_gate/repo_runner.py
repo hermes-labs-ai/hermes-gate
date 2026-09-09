@@ -18,7 +18,7 @@ if sys.version_info < (3, 11):
 
 import tomllib
 
-RUNNER_VERSION = "0.1.3"
+RUNNER_VERSION = "0.1.4"
 OUTPUT_CAP = 65536
 # Git's canonical empty tree: diffing it against HEAD reviews every committed byte.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -57,8 +57,17 @@ def _range_spec(root: Path, base: str | None, whole_tree: bool) -> str:
     """Resolve the requested review range into a single Git diff revision argument."""
     if whole_tree:
         return f"{EMPTY_TREE}..HEAD"
-    if not base:
+    if base is None:
+        # Only an omitted base selects the local worktree, index and untracked scope.
         return ""
+    if not base.strip():
+        # An explicitly empty base is a misconfiguration, not a request for the local
+        # scope: a hosted rail whose base expression resolved to nothing would otherwise
+        # review a pristine checkout and report a pass over zero bytes.
+        raise RangeError(
+            "base revision is empty; omit --base and HERMES_GATE_BASE for the local "
+            "worktree scope, or name a revision"
+        )
     resolved = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
         capture_output=True,
@@ -397,7 +406,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "ERROR", "reason": USAGE}))
         return 2
     mode, rest = args[0], args[1:]
-    base = os.environ.get(BASE_ENV, "").strip() or None
+    # Absent and empty are different requests: absent selects the local scope, while a
+    # variable that is set but blank is kept so it fails clearly below instead of being
+    # mistaken for "no base". An explicit --base still overrides the environment.
+    environment_base = os.environ.get(BASE_ENV)
+    base = environment_base.strip() if environment_base is not None else None
+    base_source = BASE_ENV
     whole_tree = False
     while rest:
         option = rest.pop(0)
@@ -408,12 +422,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"status": "ERROR", "reason": "--base needs a revision"}))
                 return 2
             base = rest.pop(0)
+            base_source = "--base"
         elif option.startswith("--base="):
             base = option.split("=", 1)[1]
+            base_source = "--base"
         else:
             print(json.dumps({"status": "ERROR", "reason": f"unknown option {option!r}; {USAGE}"}))
             return 2
-    if whole_tree and base:
+    if base is not None and not base.strip():
+        print(json.dumps({
+            "status": "ERROR",
+            "reason": f"{base_source} is set but empty; omit it for the local worktree scope "
+            "or name a revision",
+        }))
+        return 2
+    if whole_tree and base is not None:
         print(json.dumps({"status": "ERROR", "reason": "--all and --base are exclusive"}))
         return 2
     result = run(mode, base=base, whole_tree=whole_tree)

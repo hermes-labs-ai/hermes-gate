@@ -16,6 +16,9 @@ jobs:
           # The gate compares the pull request base with HEAD, so the base commit
           # has to be in the checkout.
           fetch-depth: 0
+          # The gate only reads the checkout. Do not leave the workflow token in
+          # .git/config where every later step and declared stage could read it.
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

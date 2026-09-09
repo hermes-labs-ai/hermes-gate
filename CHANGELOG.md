@@ -6,6 +6,24 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-09
+
+### Fixed
+
+- The generated quality workflow now checks out with `persist-credentials: false`.
+  `actions/checkout` stores the workflow token in `.git/config` by default, where
+  every later step and every declared gate stage could read it; the gate only
+  reads the checkout and never needed it. The repository's own tracked workflow
+  is regenerated accordingly. Existing generated rails need `hermes-gate init
+  --force` (or the same one-line edit) to pick this up.
+- An explicitly empty base is now a clear error instead of silently selecting
+  the local worktree scope. `--base ""`, `--base=`, and a `HERMES_GATE_BASE`
+  that is set but blank all exit 2 naming the empty source, and the `run()` entry
+  point reports `ERROR` for an empty `base`. A hosted rail whose base expression
+  resolved to nothing would otherwise have reviewed a pristine checkout. An
+  omitted base still selects the local scope, a valid base still works, and an
+  explicit `--base` still overrides the environment.
+
 ## [0.1.3] - 2026-09-09
 
 ### Fixed
