@@ -417,3 +417,46 @@ def test_generated_runner_carries_the_review_range_interface(tmp_path: Path) -> 
     source = (Path(__file__).parents[1] / "src/hermes_gate/repo_runner.py").read_bytes()
     assert copied == source, "init must copy the runner byte-for-byte"
     assert b"HERMES_GATE_BASE" in copied and b"--all" in copied
+
+
+# --- Corrections from the independent review of the port --------------------------------
+
+
+def test_fast_skips_a_file_less_stage_whose_globs_match_nothing(tmp_path: Path) -> None:
+    """Fast's original selection guard must survive the full-mode NOT_APPLICABLE change."""
+    _staged_fixture(
+        tmp_path,
+        _stage("rust-only", '["python3", "-c", "raise SystemExit(1)"]')
+        .replace("[[full]]", "[[fast]]")
+        .replace('globs = ["**/*"]', 'globs = ["**/*.rs"]'),
+    )
+    # Nothing changed matches the stage's globs (the fixture writes no .rs file), and the
+    # stage carries no {files} - exactly the case the port stopped skipping.
+    (tmp_path / "touched.txt").write_text("prose\n", encoding="utf-8")
+    _, result = _run_runner(tmp_path, "fast")
+    assert result["checks"] == [], result
+    assert result["status"] == "NOT_APPLICABLE"
+
+
+def test_scalar_argv_is_a_stage_error_rather_than_a_crash(tmp_path: Path) -> None:
+    """A non-list argv must not raise out of the loop and deny the caller a receipt."""
+    _staged_fixture(
+        tmp_path,
+        _stage("scalar-argv", "1")
+        + _stage("sentinel-still-runs", '["python3", "-c", "print(\'sentinel\')"]'),
+    )
+    proc, result = _run_runner(tmp_path, "full")
+    assert proc.returncode == 1
+    assert result["status"] == "ERROR", result
+    assert "scalar-argv" in result["reason"]
+    assert result["checks"][0]["status"] == "ERROR"
+    assert result["checks"][-1]["name"] == "sentinel-still-runs"
+    assert result["checks"][-1]["status"] == "PASS"
+
+
+def test_scalar_argv_in_fast_reports_an_error_receipt(tmp_path: Path) -> None:
+    _staged_fixture(tmp_path, _stage("scalar-argv", "1").replace("[[full]]", "[[fast]]"))
+    proc, result = _run_runner(tmp_path, "fast")
+    assert proc.returncode == 1
+    assert result["status"] == "ERROR", result
+    assert result["reason"] == "argv must be a non-empty string array"

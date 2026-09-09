@@ -142,9 +142,21 @@ def run(
     for index, command in enumerate(commands):
         globs = command.get("globs", ["**/*"])
         selected = [path for path in paths if any(_match(path, pattern) for pattern in globs)]
-        declared = list(command.get("argv", []))
+        if mode == "fast" and not selected:
+            # Fast keeps its original selection guard: a stage whose globs match nothing
+            # is skipped outright, whether or not its argv reads {files}, so a narrow
+            # fast stage never runs against an unrelated edit or eats the budget.
+            continue
+        raw_argv = command.get("argv", [])
+        # Validate the container before converting it: a scalar argv must be reported as
+        # this stage's error, not raise out of the loop and deny the caller a receipt.
+        declared = list(raw_argv) if isinstance(raw_argv, list) else []
         name = str(command.get("name", declared[0] if declared else f"{mode}[{index}]"))
-        if not declared or any(not isinstance(part, str) for part in declared):
+        if (
+            not isinstance(raw_argv, list)
+            or not declared
+            or any(not isinstance(part, str) for part in declared)
+        ):
             reason = "argv must be a non-empty string array"
             # One unusable declaration is that stage's error; the remaining declared
             # stages still owe the caller a result.
@@ -158,8 +170,6 @@ def run(
         if not selected and "{files}" in declared:
             # A file-driven stage with nothing to read checks no bytes; recording it as a
             # pass is how a hosted checkout used to report a green gate over nothing.
-            if mode == "fast":
-                continue
             checks.append({
                 "name": name,
                 "argv": declared,
