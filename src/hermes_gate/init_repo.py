@@ -305,6 +305,10 @@ def _detected_profile(root: Path) -> str:
 def _workflow(root: Path) -> str:
     steps = [
         "      - uses: actions/checkout@v4",
+        "        with:",
+        "          # The gate compares the pull request base with HEAD, so the base commit",
+        "          # has to be in the checkout.",
+        "          fetch-depth: 0",
         "      - uses: actions/setup-python@v5",
         "        with:",
         "          python-version: '3.12'",
@@ -337,8 +341,17 @@ def _workflow(root: Path) -> str:
         )
     steps.extend(
         [
-            "      - name: Run declared full gate",
+            # A hosted checkout has no worktree, index or untracked changes, so the default
+            # local scope selects nothing and every file-driven stage would report a pass
+            # over zero bytes. Name the range explicitly instead.
+            "      - name: Run declared full gate against the pull request range",
+            "        if: github.event_name == 'pull_request'",
+            "        env:",
+            "          HERMES_GATE_BASE: ${{ github.event.pull_request.base.sha }}",
             "        run: python3 .hermes/hermes_gate_runner.py full",
+            "      - name: Run declared full gate against every committed byte",
+            "        if: github.event_name != 'pull_request'",
+            "        run: python3 .hermes/hermes_gate_runner.py full --all",
         ]
     )
     return "\n".join(

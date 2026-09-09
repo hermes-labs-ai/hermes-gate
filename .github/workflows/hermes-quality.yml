@@ -12,10 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The gate compares the pull request base with HEAD, so the base commit
+          # has to be in the checkout.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install project and declared gate tools
         run: python3 -m pip install -e '.[test]'
-      - name: Run declared full gate
+      - name: Run declared full gate against the pull request range
+        if: github.event_name == 'pull_request'
+        env:
+          HERMES_GATE_BASE: ${{ github.event.pull_request.base.sha }}
         run: python3 .hermes/hermes_gate_runner.py full
+      - name: Run declared full gate against every committed byte
+        if: github.event_name != 'pull_request'
+        run: python3 .hermes/hermes_gate_runner.py full --all
