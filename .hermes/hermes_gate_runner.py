@@ -20,6 +20,16 @@ import tomllib
 
 RUNNER_VERSION = "0.1.3"
 OUTPUT_CAP = 65536
+# Git's canonical empty tree: diffing it against HEAD reviews every committed byte.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+# Child stages read the resolved review range so nested `diff-check` runs review the
+# same bytes the parent selected. Empty means the default worktree/index/untracked scope.
+RANGE_ENV = "HERMES_GATE_RANGE"
+BASE_ENV = "HERMES_GATE_BASE"
+
+
+class RangeError(RuntimeError):
+    """The requested review range could not be resolved against this checkout."""
 
 
 def _root() -> Path:
@@ -43,6 +53,41 @@ def _changed(root: Path) -> list[str]:
     return sorted(values)
 
 
+def _range_spec(root: Path, base: str | None, whole_tree: bool) -> str:
+    """Resolve the requested review range into a single Git diff revision argument."""
+    if whole_tree:
+        return f"{EMPTY_TREE}..HEAD"
+    if not base:
+        return ""
+    resolved = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    revision = resolved.stdout.strip()
+    if resolved.returncode or not revision:
+        raise RangeError(
+            f"base revision {base!r} is not present in this checkout; "
+            "fetch it (actions/checkout fetch-depth: 0) before running the gate"
+        )
+    # Three dots compares the merge base with HEAD, so the range holds only the
+    # changes this head introduced, whether HEAD is the head or the merge commit.
+    return f"{revision}...HEAD"
+
+
+def _range_changed(root: Path, spec: str) -> list[str]:
+    proc = subprocess.run(
+        ["git", "-C", str(root), "diff", "--name-only", "-z", spec],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode:
+        detail = proc.stderr.decode("utf-8", "replace").strip() or "git diff failed"
+        raise RangeError(f"cannot compare {spec!r}: {detail}")
+    return sorted(x.decode("utf-8", "surrogateescape") for x in proc.stdout.split(b"\0") if x)
+
+
 def _match(path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(path, pattern) or (
         pattern.startswith("**/") and fnmatch.fnmatch(path, pattern[3:])
@@ -50,7 +95,12 @@ def _match(path: str, pattern: str) -> bool:
 
 
 def run(
-    mode: str, *, root: Path | None = None, files: list[str] | None = None
+    mode: str,
+    *,
+    root: Path | None = None,
+    files: list[str] | None = None,
+    base: str | None = None,
+    whole_tree: bool = False,
 ) -> dict[str, object]:
     started = time.monotonic()
     root = (root or _root()).resolve()
@@ -61,7 +111,18 @@ def run(
         config = tomllib.loads(config_path.read_text(encoding="utf-8"))
     except Exception as exc:
         return _result(mode, "ERROR", started, [], f"invalid profile: {exc}")
-    paths = list(files) if files is not None else _changed(root)
+    spec = ""
+    try:
+        spec = _range_spec(root, base, whole_tree)
+        if files is not None:
+            paths = list(files)
+        elif spec:
+            paths = _range_changed(root, spec)
+        else:
+            # Default, and the only local behaviour: worktree, index and untracked bytes.
+            paths = _changed(root)
+    except RangeError as exc:
+        return _result(mode, "ERROR", started, [], str(exc), range_spec=spec)
     paths = [path for path in paths if os.path.lexists(root / path)]
     exclusions = config.get("gate", {}).get("exclusions", [])
     paths = [path for path in paths if not any(_match(path, pattern) for pattern in exclusions)]
@@ -73,45 +134,107 @@ def run(
     budget = (
         float(config.get("gate", {}).get("fast_budget_seconds", 8.0)) if mode == "fast" else None
     )
+    environment = {**os.environ, RANGE_ENV: spec}
     checks: list[dict[str, object]] = []
-    for spec in commands:
-        globs = spec.get("globs", ["**/*"])
+    executed = 0
+    failed: list[str] = []
+    invalid: list[str] = []
+    for index, command in enumerate(commands):
+        globs = command.get("globs", ["**/*"])
         selected = [path for path in paths if any(_match(path, pattern) for pattern in globs)]
-        if mode == "fast" and not selected:
+        declared = list(command.get("argv", []))
+        name = str(command.get("name", declared[0] if declared else f"{mode}[{index}]"))
+        if not declared or any(not isinstance(part, str) for part in declared):
+            reason = "argv must be a non-empty string array"
+            # One unusable declaration is that stage's error; the remaining declared
+            # stages still owe the caller a result.
+            if mode == "fast":
+                return _result(mode, "ERROR", started, checks, reason, range_spec=spec)
+            checks.append(
+                {"name": name, "argv": declared, "status": "ERROR", "reason": reason}
+            )
+            invalid.append(name)
+            continue
+        if not selected and "{files}" in declared:
+            # A file-driven stage with nothing to read checks no bytes; recording it as a
+            # pass is how a hosted checkout used to report a green gate over nothing.
+            if mode == "fast":
+                continue
+            checks.append({
+                "name": name,
+                "argv": declared,
+                "status": "NOT_APPLICABLE",
+                "reason": "no selected files for this stage",
+            })
             continue
         argv: list[str] = []
-        for part in spec.get("argv", []):
+        for part in declared:
             argv.extend(selected if part == "{files}" else [part])
-        if not argv or any(not isinstance(part, str) for part in argv):
-            return _result(mode, "ERROR", started, checks, "argv must be a non-empty string array")
+        if not argv:
+            reason = "argv must be a non-empty string array"
+            if mode == "fast":
+                return _result(mode, "ERROR", started, checks, reason, range_spec=spec)
+            checks.append({"name": name, "argv": declared, "status": "ERROR", "reason": reason})
+            invalid.append(name)
+            continue
         elapsed = time.monotonic() - started
-        timeout = float(spec.get("timeout_seconds", 8.0))
+        timeout = float(command.get("timeout_seconds", 8.0))
         if budget is not None:
             timeout = min(timeout, max(0.01, budget - elapsed))
-        check = _execute(argv, root, timeout, str(spec.get("name", argv[0])))
+        check = _execute(argv, root, timeout, name, environment)
         checks.append(check)
+        executed += 1
         if check["status"] != "PASS":
-            return _result(mode, "FAIL", started, checks, str(check.get("reason", "check failed")))
+            # Fast keeps its first-failure exit so the local budget still holds; full owes
+            # the caller the result of every declared stage.
+            if mode == "fast":
+                return _result(
+                    mode, "FAIL", started, checks, str(check.get("reason", "check failed")),
+                    range_spec=spec,
+                )
+            failed.append(name)
         if budget is not None and time.monotonic() - started >= budget:
-            return _result(mode, "FAIL", started, checks, "fast budget exhausted")
-    if not checks:
-        return _result(mode, "NOT_APPLICABLE", started, [], "no commands matched changed files")
-    return _result(mode, "PASS", started, checks, "")
+            return _result(mode, "FAIL", started, checks, "fast budget exhausted", range_spec=spec)
+    if invalid:
+        reason = "unusable stage declarations: " + ", ".join(invalid)
+        if failed:
+            reason += "; failed stages: " + ", ".join(failed)
+        return _result(mode, "ERROR", started, checks, reason, range_spec=spec)
+    if failed:
+        return _result(
+            mode, "FAIL", started, checks, "failed stages: " + ", ".join(failed), range_spec=spec
+        )
+    if not executed:
+        return _result(
+            mode, "NOT_APPLICABLE", started, checks, "no commands matched changed files",
+            range_spec=spec,
+        )
+    return _result(mode, "PASS", started, checks, "", range_spec=spec)
 
 
-def _execute(argv: list[str], root: Path, timeout: float, name: str) -> dict[str, object]:
+def _execute(
+    argv: list[str],
+    root: Path,
+    timeout: float,
+    name: str,
+    environment: dict[str, str] | None = None,
+) -> dict[str, object]:
     started = time.monotonic()
     try:
         proc = subprocess.Popen(
             argv,
             cwd=root,
+            env=environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
         )
-    except FileNotFoundError:
-        return {"name": name, "argv": argv, "status": "FAIL", "reason": "executable unavailable"}
+    except OSError as exc:
+        # A command that cannot be launched at all - missing, not executable, or the
+        # wrong binary format - is this stage's failure, not the whole gate's.
+        detail = "executable unavailable" if isinstance(exc, FileNotFoundError) else str(exc)
+        return {"name": name, "argv": argv, "status": "FAIL", "reason": detail}
 
     stdout_capture: dict[str, object] = {"data": b"", "total": 0}
     stderr_capture: dict[str, object] = {"data": b"", "total": 0}
@@ -195,6 +318,14 @@ def _diff_check(root: Path, paths: list[str]) -> int:
     if not paths:
         return 0
     git = ["git", "--literal-pathspecs", "-C", str(root)]
+    review_range = os.environ.get(RANGE_ENV, "")
+    if review_range:
+        # A hosted checkout has no worktree or index changes, so the committed range is
+        # the only thing worth checking; the parent resolved it once for every stage.
+        result = subprocess.run(
+            [*git, "diff", "--check", review_range, "--", *paths], check=False
+        )
+        return result.returncode
     for flags in ([], ["--cached"]):
         result = subprocess.run([*git, "diff", *flags, "--check", "--", *paths], check=False)
         if result.returncode:
@@ -225,7 +356,13 @@ def _diff_check(root: Path, paths: list[str]) -> int:
 
 
 def _result(
-    mode: str, status: str, started: float, checks: list[dict[str, object]], reason: str
+    mode: str,
+    status: str,
+    started: float,
+    checks: list[dict[str, object]],
+    reason: str,
+    *,
+    range_spec: str = "",
 ) -> dict[str, object]:
     return {
         "schema": "hermes-gate/runner-v1",
@@ -234,18 +371,42 @@ def _result(
         "status": status,
         "elapsed_ms": round((time.monotonic() - started) * 1000),
         "checks": checks,
+        "range": range_spec,
         "reason": reason,
     }
 
 
+USAGE = "usage: runner.py fast|full [--base REV | --all]"
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv[1:]
+    args = list(argv if argv is not None else sys.argv[1:])
     if args and args[0] == "diff-check":
         return _diff_check(_root(), args[1:])
     if not args or args[0] not in {"fast", "full"}:
-        print(json.dumps({"status": "ERROR", "reason": "usage: runner.py fast|full"}))
+        print(json.dumps({"status": "ERROR", "reason": USAGE}))
         return 2
-    result = run(args[0])
+    mode, rest = args[0], args[1:]
+    base = os.environ.get(BASE_ENV, "").strip() or None
+    whole_tree = False
+    while rest:
+        option = rest.pop(0)
+        if option == "--all":
+            whole_tree = True
+        elif option == "--base":
+            if not rest:
+                print(json.dumps({"status": "ERROR", "reason": "--base needs a revision"}))
+                return 2
+            base = rest.pop(0)
+        elif option.startswith("--base="):
+            base = option.split("=", 1)[1]
+        else:
+            print(json.dumps({"status": "ERROR", "reason": f"unknown option {option!r}; {USAGE}"}))
+            return 2
+    if whole_tree and base:
+        print(json.dumps({"status": "ERROR", "reason": "--all and --base are exclusive"}))
+        return 2
+    result = run(mode, base=base, whole_tree=whole_tree)
     print(json.dumps(result, sort_keys=True))
     return 0 if result["status"] in {"PASS", "NOT_APPLICABLE"} else 1
 
