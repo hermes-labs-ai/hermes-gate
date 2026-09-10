@@ -159,10 +159,19 @@ judge command per subagent task and sends one JSON object on stdin:
 
 ```json
 {"version": 1, "goal": "...", "summary": "...", "attempt": 0, "max_retries": 2,
- "previous_feedback": null, "task_index": 0, "subagent_id": "...",
+ "previous_feedback": ["..."], "task_index": 0, "subagent_id": "..." | null,
  "session_id": null, "model": null, "api_calls": null, "completed": true,
- "workspace": "/absolute/path/to/the/child/workspace"}
+ "workspace": "/absolute/path/to/the/child/workspace" | null,
+ "workspace_isolated": true}
 ```
+
+`previous_feedback` may be a string, an array of strings, or `null`; the judge
+never reads it. `subagent_id` and `workspace` may be `null`. `workspace_isolated`
+is validated as a boolean when present. A `null` or absent `workspace` cannot be
+judged and returns the fixed verdict `error` with feedback
+`workspace unavailable: request has no workspace path`; an unusable path
+returns `workspace unavailable: path is not a directory`. Neither echoes the
+request.
 
 and reads exactly one JSON object from stdout:
 

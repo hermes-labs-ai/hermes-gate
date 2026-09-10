@@ -1,6 +1,6 @@
 """``hermes-gate delegate-judge``: judge one child workspace with the fast gate.
 
-Wire contract (see README "Review and hooks"): read exactly one JSON request
+Wire contract (see README "Hermes Agent quality-gate seam"): read one JSON request
 object from stdin and write exactly one JSON ``{"verdict", "feedback"}``
 object to stdout. This module never runs a shell and never changes the
 process's working directory; every gate call is bound to the caller-supplied
@@ -22,7 +22,7 @@ REQUEST_VERSION = 1
 MAX_FEEDBACK_CHARS = 800
 MAX_FAILED_CHECKS = 5
 
-# name -> expected type for fields the contract always sends with a concrete value.
+# name -> expected type for fields the emitter always sends with a concrete value.
 _REQUIRED_FIELDS: dict[str, type] = {
     "version": int,
     "goal": str,
@@ -30,18 +30,23 @@ _REQUIRED_FIELDS: dict[str, type] = {
     "attempt": int,
     "max_retries": int,
     "task_index": int,
-    "subagent_id": str,
     "completed": bool,
-    "workspace": str,
 }
-# name -> expected type for fields the contract may send as ``null``.
+# name -> expected type for fields the emitter may send as ``null``.
 _NULLABLE_FIELDS: dict[str, type] = {
-    "previous_feedback": str,
+    "subagent_id": str,
     "session_id": str,
     "model": str,
     "api_calls": int,
+    "workspace": str,
+}
+# name -> expected type for fields the emitter may omit entirely.
+_OPTIONAL_FIELDS: dict[str, type] = {
+    "workspace_isolated": bool,
 }
 _TYPE_LABELS: dict[type, str] = {int: "an integer", str: "a string", bool: "a boolean"}
+_NO_WORKSPACE = "workspace unavailable: request has no workspace path"
+_NOT_A_DIRECTORY = "workspace unavailable: path is not a directory"
 _PASSING_STATUSES = (Status.PASS, Status.NOT_APPLICABLE)
 
 
@@ -76,15 +81,26 @@ def validate_request(value: dict[str, Any]) -> str:
     for field, kind in _NULLABLE_FIELDS.items():
         if field in value and value[field] is not None and not _matches(value[field], kind):
             return f"{field} must be {_TYPE_LABELS[kind]} or null"
+    for field, kind in _OPTIONAL_FIELDS.items():
+        if field in value and not _matches(value[field], kind):
+            return f"{field} must be {_TYPE_LABELS[kind]}"
+    if not _feedback_shape_ok(value.get("previous_feedback")):
+        return "previous_feedback must be a string, an array of strings, or null"
     if value["version"] != REQUEST_VERSION:
         return f"unsupported request version: {value['version']!r}"
-    if not value["workspace"].strip():
+    workspace = value.get("workspace")
+    if isinstance(workspace, str) and not workspace.strip():
         return "workspace must not be empty"
-    if not value["subagent_id"].strip():
-        return "subagent_id must not be empty"
     if value["attempt"] < 0 or value["max_retries"] < 0:
         return "attempt and max_retries must be non-negative"
     return ""
+
+
+def _feedback_shape_ok(value: Any) -> bool:
+    # The judge never reads prior feedback; the check only keeps the wire shape honest.
+    if value is None or isinstance(value, str):
+        return True
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 def _matches(value: Any, kind: type) -> bool:
@@ -101,10 +117,12 @@ def judge(request: dict[str, Any]) -> dict[str, str]:
     error = validate_request(request)
     if error:
         return {"verdict": "error", "feedback": _bound(f"invalid request: {error}")}
-    workspace = Path(request["workspace"]).expanduser()
+    workspace_value = request.get("workspace")
+    if workspace_value is None:
+        return {"verdict": "error", "feedback": _NO_WORKSPACE}
+    workspace = Path(workspace_value).expanduser()
     if not workspace.is_dir():
-        reason = f"workspace is not a directory: {workspace}"
-        return {"verdict": "error", "feedback": _bound(reason)}
+        return {"verdict": "error", "feedback": _NOT_A_DIRECTORY}
     root = repo_root(workspace)
     if root is None:
         return {"verdict": "error", "feedback": "workspace is not a Git repository"}

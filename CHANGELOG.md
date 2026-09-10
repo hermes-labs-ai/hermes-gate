@@ -17,7 +17,11 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   `retry` while `attempt < max_retries`, else `reject`; an invalid request, a
   missing profile, an unavailable tool, or an internal error all map to
   `error`. Feedback is bounded and never includes raw command output, diffs,
-  or source content. See README "Hermes Agent quality-gate seam".
+  or source content. The validator accepts the Agent's emitted v1 shape:
+  `previous_feedback` as an array of strings (or a string, or `null`),
+  `subagent_id` and `workspace` as nullable strings, and an optional boolean
+  `workspace_isolated`; a `null` workspace returns a fixed `error` feedback
+  rather than a schema failure. See README "Hermes Agent quality-gate seam".
 
 ## [0.1.4] - 2026-09-09
 
