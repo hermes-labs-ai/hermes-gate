@@ -47,7 +47,16 @@ _OPTIONAL_FIELDS: dict[str, type] = {
 _TYPE_LABELS: dict[type, str] = {int: "an integer", str: "a string", bool: "a boolean"}
 _NO_WORKSPACE = "workspace unavailable: request has no workspace path"
 _NOT_A_DIRECTORY = "workspace unavailable: path is not a directory"
+_UNDECODABLE_STDIN = "stdin is not decodable text"
 _PASSING_STATUSES = (Status.PASS, Status.NOT_APPLICABLE)
+_CHECK_PASSING_STATUSES = {"pass", "skipped", "not_applicable"}
+# The exact sentinel `repo_runner._execute`, `adapters.run_adapter`, and
+# `engine._execution_dict` all use when a check's executable cannot be
+# launched. Checks that carry a structured `unavailable` bool are trusted
+# directly; this is the fallback for check shapes that only report it in
+# `reason` text, matched exactly rather than by substring so an unrelated
+# check whose own output happens to mention "unavailable" is not misread.
+_EXECUTABLE_UNAVAILABLE_REASON = "executable unavailable"
 
 
 def read_request(stream: TextIO) -> tuple[dict[str, Any] | None, str]:
@@ -61,6 +70,10 @@ def read_request(stream: TextIO) -> tuple[dict[str, Any] | None, str]:
         raw = stream.read()
     except OSError as exc:
         return None, f"cannot read stdin: {exc}"
+    except UnicodeError:
+        # The seam contract is exactly one JSON object on stdout; exception
+        # text could carry raw undecodable bytes, so the reason stays fixed.
+        return None, _UNDECODABLE_STDIN
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -143,34 +156,52 @@ def _map_outcome(outcome: dict[str, Any], *, attempt: int, max_retries: int) -> 
     if status is Status.NOT_CONFIGURED:
         return {"verdict": "error", "feedback": _bound(f"gate not configured: {reason}")}
     if status is Status.FAIL:
+        failing = _failing_checks(outcome)
+        feedback = _bound(_fail_feedback(reason, failing))
+        if any(_check_unavailable(check) for check in failing):
+            # A check that could not even launch is an environment/adapter
+            # problem, not something a correction turn can fix: the seam
+            # contract calls for "error" here, not "retry" or "reject".
+            return {"verdict": "error", "feedback": feedback}
         # `attempt` is one-based (the first attempt is 1) and `max_retries` counts
         # allowed correction turns after that first attempt, so up to
         # `max_retries` further attempts are still owed while attempt <= max_retries.
         verdict = "retry" if attempt <= max_retries else "reject"
-        return {"verdict": verdict, "feedback": _bound(_fail_feedback(outcome, reason))}
+        return {"verdict": verdict, "feedback": feedback}
     # ERROR, and any status `fast` is not documented to return (PARKED,
     # REVIEW_UNAVAILABLE): treat conservatively as an adapter/tool problem.
     return {"verdict": "error", "feedback": _bound(f"gate error: {reason or status.value}")}
 
 
-def _fail_feedback(outcome: dict[str, Any], reason: str) -> str:
+def _failing_checks(outcome: dict[str, Any]) -> list[dict[str, Any]]:
     receipt = outcome.get("receipt")
     checks = receipt.get("checks") if isinstance(receipt, dict) else None
+    if not isinstance(checks, list):
+        return []
+    return [
+        check
+        for check in checks
+        if isinstance(check, dict)
+        and str(check.get("status", "")).lower() not in _CHECK_PASSING_STATUSES
+    ]
+
+
+def _check_unavailable(check: dict[str, Any]) -> bool:
+    unavailable = check.get("unavailable")
+    if isinstance(unavailable, bool):
+        return unavailable
+    return str(check.get("reason") or "") == _EXECUTABLE_UNAVAILABLE_REASON
+
+
+def _fail_feedback(reason: str, failing: list[dict[str, Any]]) -> str:
     lines = [reason or "fast gate failed"]
-    if isinstance(checks, list):
-        failing = [
-            check
-            for check in checks
-            if isinstance(check, dict)
-            and str(check.get("status", "")).lower() not in {"pass", "skipped", "not_applicable"}
-        ]
-        for check in failing[:MAX_FAILED_CHECKS]:
-            name = str(check.get("name", "check"))
-            detail = str(check.get("reason") or check.get("status") or "failed")
-            lines.append(f"- {name}: {detail}")
-        overflow = len(failing) - MAX_FAILED_CHECKS
-        if overflow > 0:
-            lines.append(f"...and {overflow} more failing check(s)")
+    for check in failing[:MAX_FAILED_CHECKS]:
+        name = str(check.get("name", "check"))
+        detail = str(check.get("reason") or check.get("status") or "failed")
+        lines.append(f"- {name}: {detail}")
+    overflow = len(failing) - MAX_FAILED_CHECKS
+    if overflow > 0:
+        lines.append(f"...and {overflow} more failing check(s)")
     return "\n".join(lines)
 
 

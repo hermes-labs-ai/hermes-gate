@@ -123,6 +123,17 @@ def test_zero_max_retries_rejects_immediately(repo: Path) -> None:
     assert outcome["verdict"] == "reject"
 
 
+def test_missing_check_executable_is_error_not_retry(repo: Path) -> None:
+    # Regression: a declared check whose executable cannot even be launched
+    # is a gate/environment problem, not something a correction turn can fix,
+    # so it must map to "error" rather than "retry" or "reject".
+    write_profile(repo, ["hermes-gate-test-nonexistent-tool-xyz"])
+    (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
+    outcome = judge(request(repo, attempt=1, max_retries=2))
+    assert outcome["verdict"] == "error"
+    assert "unavailable" in outcome["feedback"]
+
+
 def test_failure_feedback_omits_raw_stdout(repo: Path) -> None:
     secret_marker = "TOP-SECRET-SOURCE-BYTES"
     write_profile(
@@ -265,6 +276,22 @@ def test_read_request_accepts_valid_object() -> None:
     assert value == {"a": 1}
 
 
+class _UndecodableStream:
+    """A stream whose ``read()`` raises, like stdin on bytes invalid for its encoding."""
+
+    def read(self) -> str:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+
+def test_read_request_rejects_undecodable_stdin() -> None:
+    # Regression: the seam contract is exactly one JSON object on stdout, so a
+    # decoding failure reading stdin must produce a fixed reason instead of
+    # raising out of read_request (which the CLI does not wrap in a try/except).
+    value, error = read_request(_UndecodableStream())
+    assert value is None
+    assert error == "stdin is not decodable text"
+
+
 def test_cli_delegate_judge_pass(
     repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -274,6 +301,18 @@ def test_cli_delegate_judge_pass(
     captured = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert captured == {"verdict": "pass", "feedback": ""}
+
+
+def test_cli_delegate_judge_undecodable_stdin_still_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", _UndecodableStream())
+    exit_code = main(["delegate-judge"])
+    raw = capsys.readouterr().out
+    captured = json.loads(raw)
+    assert exit_code == 0
+    assert raw.count("\n") == 1
+    assert captured == {"verdict": "error", "feedback": "stdin is not decodable text"}
 
 
 def test_cli_delegate_judge_malformed_stdin_still_exits_zero(
