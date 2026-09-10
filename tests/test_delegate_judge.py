@@ -62,7 +62,7 @@ def request(workspace_path: Path, **overrides: object) -> dict[str, object]:
         "summary": "did the thing",
         "attempt": 0,
         "max_retries": 2,
-        "previous_feedback": None,
+        "previous_feedback": [],
         "task_index": 0,
         "subagent_id": "agent-1",
         "session_id": None,
@@ -70,6 +70,7 @@ def request(workspace_path: Path, **overrides: object) -> dict[str, object]:
         "api_calls": None,
         "completed": True,
         "workspace": str(workspace_path),
+        "workspace_isolated": True,
     }
     base.update(overrides)
     return base
@@ -124,10 +125,50 @@ def test_workspace_not_a_repository_is_error(tmp_path: Path) -> None:
     assert outcome == {"verdict": "error", "feedback": "workspace is not a Git repository"}
 
 
-def test_missing_workspace_directory_is_error(tmp_path: Path) -> None:
-    outcome = judge(request(tmp_path / "does-not-exist"))
-    assert outcome["verdict"] == "error"
-    assert "not a directory" in outcome["feedback"]
+def test_missing_workspace_directory_is_fixed_error(tmp_path: Path) -> None:
+    missing = tmp_path / "does-not-exist-SECRET-PATH"
+    outcome = judge(request(missing))
+    assert outcome == {
+        "verdict": "error",
+        "feedback": "workspace unavailable: path is not a directory",
+    }
+    assert "SECRET-PATH" not in outcome["feedback"]
+
+
+def test_null_workspace_is_fixed_error(tmp_path: Path) -> None:
+    outcome = judge(request(tmp_path, workspace=None, workspace_isolated=False))
+    assert outcome == {
+        "verdict": "error",
+        "feedback": "workspace unavailable: request has no workspace path",
+    }
+
+
+def test_absent_workspace_key_is_fixed_error(tmp_path: Path) -> None:
+    payload = request(tmp_path)
+    del payload["workspace"]
+    outcome = judge(payload)
+    assert outcome["feedback"] == "workspace unavailable: request has no workspace path"
+
+
+@pytest.mark.parametrize("feedback", [None, "prior note", ["one", "two"]])
+def test_previous_feedback_shapes_are_accepted(repo: Path, feedback: object) -> None:
+    write_profile(repo)
+    outcome = judge(request(repo, previous_feedback=feedback))
+    assert outcome == {"verdict": "pass", "feedback": ""}
+
+
+def test_null_subagent_id_and_absent_workspace_isolated_are_accepted(repo: Path) -> None:
+    write_profile(repo)
+    payload = request(repo, subagent_id=None)
+    del payload["workspace_isolated"]
+    assert judge(payload) == {"verdict": "pass", "feedback": ""}
+
+
+def test_unisolated_workspace_with_a_path_is_still_judged(repo: Path) -> None:
+    write_profile(repo, [sys.executable, "-c", "raise SystemExit(1)"])
+    (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
+    outcome = judge(request(repo, workspace_isolated=False, attempt=0, max_retries=1))
+    assert outcome["verdict"] == "retry"
 
 
 @pytest.mark.parametrize(
@@ -136,7 +177,7 @@ def test_missing_workspace_directory_is_error(tmp_path: Path) -> None:
         {"version": 2},
         {"workspace": ""},
         {"attempt": -1},
-        {"subagent_id": "  "},
+        {"max_retries": -1},
     ],
 )
 def test_invalid_request_fields_are_rejected(repo: Path, overrides: dict[str, object]) -> None:
@@ -163,6 +204,17 @@ def test_missing_required_field_is_rejected(repo: Path) -> None:
         ({"completed": "yes"}, "completed must be a boolean"),
         ({"api_calls": "3"}, "api_calls must be an integer or null"),
         ({"model": 7}, "model must be a string or null"),
+        ({"subagent_id": 5}, "subagent_id must be a string or null"),
+        ({"workspace": 5}, "workspace must be a string or null"),
+        ({"workspace_isolated": "yes"}, "workspace_isolated must be a boolean"),
+        (
+            {"previous_feedback": [1]},
+            "previous_feedback must be a string, an array of strings, or null",
+        ),
+        (
+            {"previous_feedback": {"text": "x"}},
+            "previous_feedback must be a string, an array of strings, or null",
+        ),
     ],
 )
 def test_wrong_type_field_is_rejected(
