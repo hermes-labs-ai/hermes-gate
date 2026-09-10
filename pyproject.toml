@@ -28,7 +28,7 @@ Repository = "https://github.com/hermes-labs-ai/hermes-gate"
 Issues = "https://github.com/hermes-labs-ai/hermes-gate/issues"
 
 [project.optional-dependencies]
-test = ["pytest==9.1.1", "ruff==0.15.22", "build==1.5.0"]
+test = ["pytest==9.1.1", "ruff==0.16.6", "build==1.6.0"]
 
 [project.scripts]
 hermes-gate = "hermes_gate.cli:main"
