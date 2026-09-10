@@ -60,7 +60,7 @@ def request(workspace_path: Path, **overrides: object) -> dict[str, object]:
         "version": 1,
         "goal": "implement the feature",
         "summary": "did the thing",
-        "attempt": 0,
+        "attempt": 1,
         "max_retries": 2,
         "previous_feedback": [],
         "task_index": 0,
@@ -91,14 +91,36 @@ def test_pass_when_all_changed_paths_are_excluded(repo: Path) -> None:
     assert outcome == {"verdict": "pass", "feedback": ""}
 
 
-def test_retry_below_max_retries_then_reject_at_ceiling(repo: Path) -> None:
+def test_retry_while_attempt_within_max_retries_then_reject_after(repo: Path) -> None:
+    # attempt is one-based (first attempt is 1); max_retries counts allowed
+    # correction turns after that first attempt, so attempts 1 and 2 both owe
+    # a retry when max_retries=2, and only attempt 3 exhausts the budget.
     write_profile(repo, [sys.executable, "-c", "raise SystemExit(1)"])
     (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
-    retrying = judge(request(repo, attempt=0, max_retries=2))
-    assert retrying["verdict"] == "retry"
-    assert "test" in retrying["feedback"]
-    rejecting = judge(request(repo, attempt=2, max_retries=2))
-    assert rejecting["verdict"] == "reject"
+    first = judge(request(repo, attempt=1, max_retries=2))
+    assert first["verdict"] == "retry"
+    assert "test" in first["feedback"]
+    second = judge(request(repo, attempt=2, max_retries=2))
+    assert second["verdict"] == "retry"
+    third = judge(request(repo, attempt=3, max_retries=2))
+    assert third["verdict"] == "reject"
+
+
+def test_first_attempt_retries_when_one_correction_turn_is_allowed(repo: Path) -> None:
+    # Regression: the Hermes Agent's default max_retries=1 means "one allowed
+    # correction turn", so the very first (attempt=1) failure must retry, not
+    # reject outright.
+    write_profile(repo, [sys.executable, "-c", "raise SystemExit(1)"])
+    (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
+    outcome = judge(request(repo, attempt=1, max_retries=1))
+    assert outcome["verdict"] == "retry"
+
+
+def test_zero_max_retries_rejects_immediately(repo: Path) -> None:
+    write_profile(repo, [sys.executable, "-c", "raise SystemExit(1)"])
+    (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
+    outcome = judge(request(repo, attempt=1, max_retries=0))
+    assert outcome["verdict"] == "reject"
 
 
 def test_failure_feedback_omits_raw_stdout(repo: Path) -> None:
@@ -108,7 +130,7 @@ def test_failure_feedback_omits_raw_stdout(repo: Path) -> None:
         [sys.executable, "-c", f"import sys; print({secret_marker!r}); raise SystemExit(1)"],
     )
     (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
-    outcome = judge(request(repo, attempt=0, max_retries=1))
+    outcome = judge(request(repo, attempt=1, max_retries=1))
     assert outcome["verdict"] == "retry"
     assert secret_marker not in outcome["feedback"]
 
@@ -167,7 +189,7 @@ def test_null_subagent_id_and_absent_workspace_isolated_are_accepted(repo: Path)
 def test_unisolated_workspace_with_a_path_is_still_judged(repo: Path) -> None:
     write_profile(repo, [sys.executable, "-c", "raise SystemExit(1)"])
     (repo / "source.py").write_text("bad = True\n", encoding="utf-8")
-    outcome = judge(request(repo, workspace_isolated=False, attempt=0, max_retries=1))
+    outcome = judge(request(repo, workspace_isolated=False, attempt=1, max_retries=1))
     assert outcome["verdict"] == "retry"
 
 
@@ -176,6 +198,7 @@ def test_unisolated_workspace_with_a_path_is_still_judged(repo: Path) -> None:
     [
         {"version": 2},
         {"workspace": ""},
+        {"attempt": 0},
         {"attempt": -1},
         {"max_retries": -1},
     ],

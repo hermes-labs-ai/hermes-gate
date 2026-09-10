@@ -158,20 +158,12 @@ seam: NousResearch's Hermes Agent quality gate, which spawns an argv-only
 judge command per subagent task and sends one JSON object on stdin:
 
 ```json
-{"version": 1, "goal": "...", "summary": "...", "attempt": 0, "max_retries": 2,
+{"version": 1, "goal": "...", "summary": "...", "attempt": 1, "max_retries": 2,
  "previous_feedback": ["..."], "task_index": 0, "subagent_id": "..." | null,
  "session_id": null, "model": null, "api_calls": null, "completed": true,
  "workspace": "/absolute/path/to/the/child/workspace" | null,
  "workspace_isolated": true}
 ```
-
-`previous_feedback` may be a string, an array of strings, or `null`; the judge
-never reads it. `subagent_id` and `workspace` may be `null`. `workspace_isolated`
-is validated as a boolean when present. A `null` or absent `workspace` cannot be
-judged and returns the fixed verdict `error` with feedback
-`workspace unavailable: request has no workspace path`; an unusable path
-returns `workspace unavailable: path is not a directory`. Neither echoes the
-request.
 
 and reads exactly one JSON object from stdout:
 
@@ -189,12 +181,23 @@ The command validates the request, then runs `fast` against `workspace`'s own
 Git repository root using the same internal engine `hermes-gate fast` uses —
 no shell, no API-backed review, and no process-wide working-directory change,
 so concurrent judge processes for different workspaces cannot race. A Gate
-`PASS` or `NOT_APPLICABLE` maps to verdict `pass`. A material `FAIL` maps to
-`retry` while `attempt < max_retries`, else `reject`. An invalid request, a
-missing `.hermes/gate.toml` profile, an unavailable tool or adapter, or an
-internal error all map to `error`. Feedback is a short, deterministic summary
-of the failing check names and reasons; it never includes raw command
-stdout/stderr, full diffs, or source content.
+`PASS` or `NOT_APPLICABLE` maps to verdict `pass`. `attempt` is one-based (the
+first attempt is `1`) and `max_retries` counts the allowed correction turns
+after that first attempt, so a material `FAIL` maps to `retry` while
+`attempt <= max_retries`, and `reject` once that budget is exhausted — a
+`max_retries: 1` profile still retries the first (`attempt: 1`) failure.
+
+`previous_feedback` may be a string, an array of strings, or `null`; the judge
+never reads it. `subagent_id` and `workspace` may be `null`. `workspace_isolated`
+is validated as a boolean when present. A `null` or absent `workspace` cannot be
+judged and returns the fixed verdict `error` with feedback
+`workspace unavailable: request has no workspace path`; an unusable path
+returns `workspace unavailable: path is not a directory`. Neither echoes the
+request. An invalid request, a missing `.hermes/gate.toml` profile, an
+unavailable tool or adapter, or an internal error all map to `error`.
+Feedback is a short, deterministic summary of the failing check names and
+reasons; it never includes raw command stdout/stderr, full diffs, or source
+content.
 
 ## What PASS means
 
