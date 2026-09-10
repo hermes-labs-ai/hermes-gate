@@ -79,6 +79,7 @@ hermes-gate full
 hermes-gate boundary commit|push|pr-create|pr-ready
 hermes-gate doctor
 hermes-gate uninstall-repo
+hermes-gate delegate-judge
 hermes-gate --version
 ```
 
@@ -149,6 +150,42 @@ or unavailable review output is never relabeled PASS.
 `install-codex` and `uninstall-codex` are intentionally hidden integration
 commands. Codex integration preserves unrelated hook and instruction content.
 Claude settings and instruction surfaces remain outside Codex's ownership.
+
+## Hermes Agent quality-gate seam
+
+`hermes-gate delegate-judge` is a hidden integration command for one specific
+seam: NousResearch's Hermes Agent quality gate, which spawns an argv-only
+judge command per subagent task and sends one JSON object on stdin:
+
+```json
+{"version": 1, "goal": "...", "summary": "...", "attempt": 0, "max_retries": 2,
+ "previous_feedback": null, "task_index": 0, "subagent_id": "...",
+ "session_id": null, "model": null, "api_calls": null, "completed": true,
+ "workspace": "/absolute/path/to/the/child/workspace"}
+```
+
+and reads exactly one JSON object from stdout:
+
+```json
+{"verdict": "pass" | "retry" | "reject" | "error", "feedback": "..."}
+```
+
+Configure Hermes Agent's quality gate with:
+
+```bash
+hermes-gate delegate-judge
+```
+
+The command validates the request, then runs `fast` against `workspace`'s own
+Git repository root using the same internal engine `hermes-gate fast` uses —
+no shell, no API-backed review, and no process-wide working-directory change,
+so concurrent judge processes for different workspaces cannot race. A Gate
+`PASS` or `NOT_APPLICABLE` maps to verdict `pass`. A material `FAIL` maps to
+`retry` while `attempt < max_retries`, else `reject`. An invalid request, a
+missing `.hermes/gate.toml` profile, an unavailable tool or adapter, or an
+internal error all map to `error`. Feedback is a short, deterministic summary
+of the failing check names and reasons; it never includes raw command
+stdout/stderr, full diffs, or source content.
 
 ## What PASS means
 
