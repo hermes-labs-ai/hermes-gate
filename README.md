@@ -1,5 +1,10 @@
 # HermesGate
 
+[![Hermes quality rail](https://github.com/hermes-labs-ai/hermes-gate/actions/workflows/hermes-quality.yml/badge.svg)](https://github.com/hermes-labs-ai/hermes-gate/actions/workflows/hermes-quality.yml)
+[![PyPI](https://img.shields.io/pypi/v/hermes-gate)](https://pypi.org/project/hermes-gate/)
+[![Python](https://img.shields.io/pypi/pyversions/hermes-gate)](https://pypi.org/project/hermes-gate/)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2ea44f)](LICENSE)
+
 HermesGate turns “run the checks again” into a bounded completion ceremony. It
 runs the repository's own commands, records exactly which content and tool
 versions were checked, and reuses a PASS only while those bytes still match.
