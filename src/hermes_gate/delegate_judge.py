@@ -91,8 +91,10 @@ def validate_request(value: dict[str, Any]) -> str:
     workspace = value.get("workspace")
     if isinstance(workspace, str) and not workspace.strip():
         return "workspace must not be empty"
-    if value["attempt"] < 0 or value["max_retries"] < 0:
-        return "attempt and max_retries must be non-negative"
+    if value["attempt"] < 1:
+        return "attempt must be a positive integer (attempts are one-based)"
+    if value["max_retries"] < 0:
+        return "max_retries must be non-negative"
     return ""
 
 
@@ -141,7 +143,10 @@ def _map_outcome(outcome: dict[str, Any], *, attempt: int, max_retries: int) -> 
     if status is Status.NOT_CONFIGURED:
         return {"verdict": "error", "feedback": _bound(f"gate not configured: {reason}")}
     if status is Status.FAIL:
-        verdict = "retry" if attempt < max_retries else "reject"
+        # `attempt` is one-based (the first attempt is 1) and `max_retries` counts
+        # allowed correction turns after that first attempt, so up to
+        # `max_retries` further attempts are still owed while attempt <= max_retries.
+        verdict = "retry" if attempt <= max_retries else "reject"
         return {"verdict": verdict, "feedback": _bound(_fail_feedback(outcome, reason))}
     # ERROR, and any status `fast` is not documented to return (PARKED,
     # REVIEW_UNAVAILABLE): treat conservatively as an adapter/tool problem.
