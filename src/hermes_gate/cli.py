@@ -10,6 +10,8 @@ from typing import Any, Callable
 from . import __version__
 from .codex_install import install as install_codex
 from .codex_install import uninstall as uninstall_codex
+from .delegate_judge import judge as delegate_judge
+from .delegate_judge import read_request as read_delegate_request
 from .doctor import diagnose
 from .engine import boundary, fast, full, repair, review
 from .gitstate import repo_root
@@ -38,6 +40,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("install-codex", help=argparse.SUPPRESS)
     sub.add_parser("uninstall-codex", help=argparse.SUPPRESS)
     sub.add_parser("uninstall-repo", help=argparse.SUPPRESS)
+    sub.add_parser("delegate-judge", help=argparse.SUPPRESS)
     hook = sub.add_parser("hook", help=argparse.SUPPRESS)
     hook.add_argument("event", choices=("session-start", "stop", "pre-tool-use"))
     return root
@@ -58,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(output)
     if args.command == "uninstall-codex":
         return _emit(uninstall_codex())
+    if args.command == "delegate-judge":
+        return _run_delegate_judge()
     root = repo_root(Path.cwd())
     if root is None:
         return _emit(
@@ -101,6 +106,22 @@ def _wrap_uninstall(root: Path) -> dict[str, Any]:
         "elapsed_ms": round((time.monotonic() - started) * 1000),
         **value,
     }
+
+
+def _run_delegate_judge() -> int:
+    request, error = read_delegate_request(sys.stdin)
+    if error:
+        output: dict[str, str] = {"verdict": "error", "feedback": error}
+    else:
+        assert request is not None
+        try:
+            output = delegate_judge(request)
+        except Exception:  # the seam must never crash a quality-gate child process
+            # Exception text can carry paths, argv, or profile bytes, so the
+            # harness-visible feedback stays a fixed string.
+            output = {"verdict": "error", "feedback": "internal error while judging the workspace"}
+    print(json.dumps(output, sort_keys=True))
+    return 0
 
 
 def _emit(output: dict[str, Any]) -> int:
