@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hermes_gate.codex_install import install, installed, uninstall
+from hermes_gate.codex_install import CONTRACT, install, installed, uninstall
+
+
+def test_global_contract_scopes_receipts_to_configured_repositories() -> None:
+    assert "repositories with a `.hermes/gate.toml` profile" in CONTRACT
+    assert "do not block commit, push," in CONTRACT
+    assert "or PR commands there" in CONTRACT
+    assert "Do not run" in CONTRACT
+    assert "`hermes-gate init` automatically" in CONTRACT
 
 
 def test_codex_install_merges_and_rollback_preserves_unrelated_bytes(

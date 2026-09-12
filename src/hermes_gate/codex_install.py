@@ -15,10 +15,16 @@ CONTRACT = f"""
 {MARKER_START}
 ## Hermes Gate completion rail
 
-For code changes, run `hermes-gate fast` before declaring completion and one `hermes-gate review`
-for a completed diff. Run `hermes-gate full` for PR or release readiness when the profile requires
-it. Matching receipts are mandatory at commit, push, and PR boundaries. Read-only, non-Git,
-unchanged, and non-code work is exempt. Hooks never repair files or authorize public actions.
+For code changes in repositories with a `.hermes/gate.toml` profile, run `hermes-gate fast`
+before declaring completion and one `hermes-gate review` for a completed diff. Run
+`hermes-gate full` for PR or release readiness when that profile requires it. Matching receipts
+are mandatory at commit, push, and PR boundaries in those configured repositories.
+
+Repositories without that profile have not adopted Hermes Gate. Its hooks do not block commit, push,
+or PR commands there. Use the repository's own tests and pre-push checks. Do not run
+`hermes-gate init` automatically; adoption is an explicit repository change. Read-only,
+non-Git, unchanged, and non-code work is exempt. Hooks never repair files or authorize public
+actions, and an authorized public action still requires the runtime's current permission.
 {MARKER_END}
 """.strip()
 

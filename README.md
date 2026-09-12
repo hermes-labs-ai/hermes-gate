@@ -151,6 +151,15 @@ or unavailable review output is never relabeled PASS.
 commands. Codex integration preserves unrelated hook and instruction content.
 Claude settings and instruction surfaces remain outside Codex's ownership.
 
+The Codex hooks are installed globally, but repository adoption remains
+profile-scoped. In a Git repository without `.hermes/gate.toml`, the hooks say
+that Gate is not configured and do not block commit, push, or pull-request
+commands; the repository's own tests and pre-push checks remain authoritative.
+They never run `hermes-gate init` automatically. Once a profile exists, missing
+or stale receipts and invalid profiles continue to fail closed at configured
+boundaries. `NOT_CONFIGURED` is an explicit non-adoption state, never a PASS
+receipt and never authorization for a public action.
+
 ## Hermes Agent quality-gate seam
 
 `hermes-gate delegate-judge` is a hidden integration command for one specific

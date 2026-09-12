@@ -28,6 +28,19 @@ def session_start(payload: dict[str, Any]) -> dict[str, Any]:
     root = repo_root(payload.get("cwd"))
     if root is None:
         return {"continue": True}
+    if not (root / ".hermes" / "gate.toml").is_file():
+        return {
+            "continue": True,
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": (
+                    "Hermes Gate is not configured for this repository, so its receipt rail "
+                    "does not gate commit, push, or PR commands here. Use the repository's "
+                    "native checks and pre-push hooks. Do not run hermes-gate init unless "
+                    "repository adoption is explicitly in scope."
+                ),
+            },
+        }
     session_id = str(payload.get("session_id") or "unknown")
     path = _session_path(session_id, root)
     source = str(payload.get("source") or "startup")
@@ -77,7 +90,7 @@ def stop(payload: dict[str, Any]) -> dict[str, Any]:
     if not files:
         return {"continue": True}
     outcome = fast(root, files=files)
-    if outcome["status"] == Status.PASS:
+    if outcome["status"] in {Status.PASS, Status.NOT_CONFIGURED}:
         return {"continue": True}
     reason = str(outcome.get("reason") or "fast gate did not pass")
     return {
@@ -104,7 +117,7 @@ def pre_tool_use(payload: dict[str, Any]) -> dict[str, Any]:
             return _boundary_deny("could not determine the repository selected by git -C")
         return {}
     outcome = boundary(root, detected.action.value)
-    if outcome["status"] == Status.PASS:
+    if outcome["status"] in {Status.PASS, Status.NOT_CONFIGURED}:
         return {}
     reason = str(outcome.get("reason") or "required receipt is missing")
     return _boundary_deny(reason)

@@ -20,10 +20,39 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
+def configure(root: Path) -> None:
+    (root / ".hermes").mkdir()
+    (root / ".hermes" / "gate.toml").write_text(
+        """[gate]
+fast_budget_seconds = 8.0
+full_required_local = false
+exclusions = [".git/**"]
+
+[[fast]]
+name = "pass"
+argv = ["python", "-c", "raise SystemExit(0)"]
+timeout_seconds = 1.0
+globs = ["**/*"]
+""",
+        encoding="utf-8",
+    )
+
+
 def test_non_git_and_read_only_session_exit_immediately(tmp_path: Path) -> None:
     payload = {"cwd": str(tmp_path), "session_id": "s", "source": "startup"}
     assert session_start(payload) == {"continue": True}
     assert stop(payload) == {"continue": True}
+
+
+def test_unconfigured_repo_is_explicitly_outside_the_receipt_rail(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    started = session_start({"cwd": str(root), "session_id": "s", "source": "startup"})
+
+    assert started["continue"] is True
+    context = started["hookSpecificOutput"]["additionalContext"]
+    assert "not configured" in context
+    assert "native checks and pre-push hooks" in context
+    assert "Do not run hermes-gate init" in context
 
 
 def test_stop_is_advisory_and_reuses_receipt(tmp_path: Path, monkeypatch) -> None:
@@ -62,19 +91,38 @@ globs = ["**/*"]
     assert not (root / ".hermes" / "receipt.json").exists()
 
 
-def test_pretool_blocks_real_commit_but_not_quoted_prose(tmp_path: Path) -> None:
+def test_pretool_allows_real_commit_without_profile_and_ignores_quoted_prose(
+    tmp_path: Path,
+) -> None:
     root = repo(tmp_path)
     (root / "source.py").write_text("x = 1\n", encoding="utf-8")
     git(root, "add", "source.py")
     quoted = pre_tool_use(
         {"cwd": str(root), "tool_name": "Bash", "tool_input": {"command": "echo 'git commit -m x'"}}
     )
-    blocked = pre_tool_use(
+    boundary = pre_tool_use(
         {"cwd": str(root), "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}
     )
     assert quoted == {}
-    assert blocked["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "hermes-gate init" in blocked["hookSpecificOutput"]["permissionDecisionReason"]
+    assert boundary == {}
+
+
+def test_pretool_still_blocks_configured_code_boundary_without_receipt(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    configure(root)
+    (root / "source.py").write_text("x = 1\n", encoding="utf-8")
+    git(root, "add", "source.py")
+
+    output = pre_tool_use(
+        {"cwd": str(root), "tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}
+    )
+
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "requires matching fast PASS receipt" in output["hookSpecificOutput"][
+        "permissionDecisionReason"
+    ]
 
 
 def test_non_code_commit_is_exempt_without_profile(tmp_path: Path) -> None:
@@ -89,6 +137,7 @@ def test_non_code_commit_is_exempt_without_profile(tmp_path: Path) -> None:
 
 def test_pretool_blocks_shell_wrapped_commit(tmp_path: Path) -> None:
     root = repo(tmp_path)
+    configure(root)
     (root / "source.py").write_text("x = 1\n", encoding="utf-8")
     git(root, "add", "source.py")
     output = pre_tool_use(
