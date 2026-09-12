@@ -117,7 +117,7 @@ def _run_delegate_judge() -> int:
         assert request is not None
         try:
             output = delegate_judge(request)
-        except Exception:  # the seam must never crash a quality-gate child process
+        except Exception:  # noqa: BLE001 -- the seam must never crash a quality-gate child process
             # Exception text can carry paths, argv, or profile bytes, so the
             # harness-visible feedback stays a fixed string.
             output = {"verdict": "error", "feedback": "internal error while judging the workspace"}

@@ -8,9 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from hermes_gate.init_repo import ACTION_VERSIONS
+from hermes_gate.init_repo import ACTION_VERSIONS, initialize
 from hermes_gate.init_repo import _workflow as init_repo_workflow
-from hermes_gate.init_repo import initialize
 from hermes_gate.repo_runner import _execute, run
 
 
