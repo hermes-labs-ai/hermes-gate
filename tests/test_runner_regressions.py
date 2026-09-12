@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from hermes_gate.init_repo import ACTION_VERSIONS
 from hermes_gate.init_repo import _workflow as init_repo_workflow
 from hermes_gate.init_repo import initialize
 from hermes_gate.repo_runner import _execute, run
@@ -464,8 +465,8 @@ def test_generated_workflow_checkout_does_not_persist_credentials(tmp_path: Path
     (tmp_path / "module.py").write_text("value = 1\n", encoding="utf-8")
     assert initialize(tmp_path)["status"] == "PASS"
     workflow = (tmp_path / ".github/workflows/hermes-quality.yml").read_text(encoding="utf-8")
-    checkout = workflow.index("uses: actions/checkout@v4")
-    next_step = workflow.index("- uses: actions/setup-python@v5")
+    checkout = workflow.index(f"uses: actions/checkout@{ACTION_VERSIONS['checkout']}")
+    next_step = workflow.index(f"- uses: actions/setup-python@{ACTION_VERSIONS['setup-python']}")
     assert "persist-credentials: false" in workflow[checkout:next_step], workflow
     assert workflow.count("persist-credentials") == 1
 

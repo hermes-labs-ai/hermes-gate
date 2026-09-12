@@ -11,6 +11,15 @@ from typing import Any
 from . import repo_runner
 from .gitstate import ContentReadError, git_dir, repo_identity, snapshot
 
+# Single source of truth for pinned Action versions used by the generated workflow.
+# Bump here when dependabot bumps .github/workflows/hermes-quality.yml, so the generator
+# and the tracked file cannot desync (see test_tracked_workflow_matches_the_generator).
+ACTION_VERSIONS = {
+    "checkout": "v7",
+    "setup-python": "v7",
+    "setup-node": "v4",
+}
+
 
 def initialize(root: Path, *, force: bool = False) -> dict[str, Any]:
     hermes = root / ".hermes"
@@ -304,7 +313,7 @@ def _detected_profile(root: Path) -> str:
 
 def _workflow(root: Path) -> str:
     steps = [
-        "      - uses: actions/checkout@v4",
+        f"      - uses: actions/checkout@{ACTION_VERSIONS['checkout']}",
         "        with:",
         "          # The gate compares the pull request base with HEAD, so the base commit",
         "          # has to be in the checkout.",
@@ -312,7 +321,7 @@ def _workflow(root: Path) -> str:
         "          # The gate only reads the checkout. Do not leave the workflow token in",
         "          # .git/config where every later step and declared stage could read it.",
         "          persist-credentials: false",
-        "      - uses: actions/setup-python@v5",
+        f"      - uses: actions/setup-python@{ACTION_VERSIONS['setup-python']}",
         "        with:",
         "          python-version: '3.12'",
     ]
@@ -335,7 +344,7 @@ def _workflow(root: Path) -> str:
         install_command = "npm ci" if (root / "package-lock.json").is_file() else "npm install"
         steps.extend(
             [
-                "      - uses: actions/setup-node@v4",
+                f"      - uses: actions/setup-node@{ACTION_VERSIONS['setup-node']}",
                 "        with:",
                 "          node-version: '22'",
                 "      - name: Install JavaScript dependencies",
