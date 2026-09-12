@@ -6,6 +6,26 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `hermes-gate delegate-judge`: a hidden CLI adapter for the NousResearch
+  Hermes Agent quality-gate seam. It reads one JSON request object from
+  stdin, runs the repository's configured `fast` gate against the request's
+  `workspace` using the existing internal engine (no shell, no API-backed
+  review), and writes one JSON `{"verdict", "feedback"}` object to stdout.
+  Gate `PASS`/`NOT_APPLICABLE` maps to `pass`. `attempt` is one-based (the
+  first attempt is `1`) and `max_retries` counts the allowed correction turns
+  after that first attempt, so a material `FAIL` maps to `retry` while
+  `attempt <= max_retries`, else `reject` — a `max_retries: 1` profile still
+  retries the first failure. An invalid request, a missing profile, an
+  unavailable tool, or an internal error all map to `error`. Feedback is
+  bounded and never includes raw command output, diffs, or source content.
+  The validator accepts the Agent's emitted v1 shape: `previous_feedback` as
+  an array of strings (or a string, or `null`), `subagent_id` and `workspace`
+  as nullable strings, and an optional boolean `workspace_isolated`; a `null`
+  workspace returns a fixed `error` feedback rather than a schema failure.
+  See README "Hermes Agent quality-gate seam".
+
 ## [0.1.4] - 2026-09-09
 
 ### Fixed
