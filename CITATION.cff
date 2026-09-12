@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+type: software
+title: hermes-gate
+abstract: >-
+  Bounded, receipt-bound completion rail for coding agents. Runs a
+  repository's own checks, records exactly which content and tool versions
+  were checked, and reuses a PASS only while those bytes still match. No
+  daemon, no runtime dependencies beyond Python 3.11+ and Git; it does not
+  repair code, invoke a model, or authorize a push, pull request, or
+  release.
+authors:
+  - family-names: Bosch
+    given-names: Rolando
+    orcid: "https://orcid.org/0009-0005-4896-1112"
+version: 0.1.4
+date-released: '2026-09-09'
+license: Apache-2.0
+repository-code: "https://github.com/hermes-labs-ai/hermes-gate"
+url: "https://hermes-labs.ai/open-source"

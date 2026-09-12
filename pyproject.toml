@@ -11,21 +11,35 @@ license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = []
 authors = [{ name = "Hermes Labs", email = "roli@hermes-labs.ai" }]
+keywords = [
+    "ai-agents",
+    "coding-agent",
+    "completion-gate",
+    "ci",
+    "developer-tools",
+    "hermes-labs",
+    "quality-assurance",
+    "receipts",
+    "reproducibility",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
 ]
 
 [project.urls]
-Homepage = "https://github.com/hermes-labs-ai/hermes-gate"
+Homepage = "https://hermes-labs.ai/open-source"
 Repository = "https://github.com/hermes-labs-ai/hermes-gate"
 Issues = "https://github.com/hermes-labs-ai/hermes-gate/issues"
+Changelog = "https://github.com/hermes-labs-ai/hermes-gate/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 test = ["pytest==9.1.1", "ruff==0.16.6", "build==1.6.0"]
