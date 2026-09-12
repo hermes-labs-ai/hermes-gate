@@ -9,7 +9,6 @@ from typing import Any
 
 from .gitstate import diff_digest, git_dir, head, repo_identity
 
-
 SCHEMA = "hermes-gate/receipt-v1"
 
 

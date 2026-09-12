@@ -5,8 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import hermes_gate.hooks as hooks
-
+from hermes_gate import hooks
 from hermes_gate.hooks import pre_tool_use, session_start, stop
 
 

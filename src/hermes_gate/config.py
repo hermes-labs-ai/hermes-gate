@@ -93,11 +93,9 @@ class GateConfig:
 
 
 def _matches(path: str, pattern: str) -> bool:
-    if fnmatch.fnmatch(path, pattern):
-        return True
-    if pattern.startswith("**/") and fnmatch.fnmatch(path, pattern[3:]):
-        return True
-    return False
+    return fnmatch.fnmatch(path, pattern) or (
+        pattern.startswith("**/") and fnmatch.fnmatch(path, pattern[3:])
+    )
 
 
 def _strings(value: Any, key: str, *, allow_empty: bool = False) -> tuple[str, ...]:

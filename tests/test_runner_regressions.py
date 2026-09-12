@@ -51,7 +51,7 @@ def test_generated_whitespace_check_covers_git_states(
         path.write_text("clean working copy\n")
     proc = subprocess.run(
         [sys.executable, str(tmp_path / ".hermes/hermes_gate_runner.py"), mode],
-        cwd=tmp_path, capture_output=True, text=True,
+        cwd=tmp_path, capture_output=True, text=True, check=False,
     )
     result = json.loads(proc.stdout)
     assert result["status"] == ("FAIL" if bad else "PASS"), result
@@ -124,7 +124,7 @@ def test_unsupported_runner_runtime_has_actionable_error(tmp_path: Path) -> None
     runner = Path(__file__).parents[1] / "src/hermes_gate/repo_runner.py"
     proc = subprocess.run(
         [sys.executable, "-c", "import runpy,sys; sys.version_info=(3,10,0); runpy.run_path(sys.argv[1])", str(runner)],
-        cwd=tmp_path, capture_output=True, text=True,
+        cwd=tmp_path, capture_output=True, text=True, check=False,
     )
     assert proc.returncode != 0
     assert "Python 3.11 or newer" in proc.stderr
@@ -196,7 +196,7 @@ def _run_runner(root: Path, *args: str, env: dict[str, str] | None = None):
 
     proc = subprocess.run(
         [sys.executable, str(root / ".hermes/hermes_gate_runner.py"), *args],
-        cwd=root, capture_output=True, text=True, env={**os.environ, **(env or {})},
+        cwd=root, capture_output=True, text=True, env={**os.environ, **(env or {})}, check=False,
     )
     return proc, json.loads(proc.stdout)
 

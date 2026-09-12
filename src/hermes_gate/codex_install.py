@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 MARKER_START = "<!-- hermes-gate:v0.1:start -->"
 MARKER_END = "<!-- hermes-gate:v0.1:end -->"
 CONTRACT = f"""
@@ -138,7 +137,7 @@ def _read_hooks(path: Path) -> dict[str, Any]:
     except FileNotFoundError:
         return {"description": "User lifecycle hooks", "hooks": {}}
     if not isinstance(raw, dict) or not isinstance(raw.get("hooks", {}), dict):
-        raise ValueError(f"malformed Codex hook file: {path}")
+        raise TypeError(f"malformed Codex hook file: {path}")
     raw.setdefault("hooks", {})
     return raw
 

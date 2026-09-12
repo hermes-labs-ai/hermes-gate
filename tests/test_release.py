@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 import io
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tarfile
 import tomllib
 import zipfile
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).parents[1]
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-import hermes_gate.init_repo as init_repo
-from hermes_gate.init_repo import initialize, uninstall, verify_runner
+from hermes_gate import init_repo
 from hermes_gate.engine import fast
 from hermes_gate.gitstate import ContentReadError, git_dir
+from hermes_gate.init_repo import initialize, uninstall, verify_runner
 
 
 def git(root: Path, *args: str) -> None:
