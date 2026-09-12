@@ -12,8 +12,11 @@ import threading
 import time
 from pathlib import Path
 
-# The copied runner has the same minimum runtime as the installed CLI.
-if sys.version_info < (3, 11):
+# The copied runner has the same minimum runtime as the installed CLI. This guard is a
+# runtime check on whatever interpreter actually invokes the standalone copied file
+# (which can be an older system python3, not the pinned venv), so it is not dead code
+# even though pyproject.toml's target-version is already >=3.11.
+if sys.version_info < (3, 11):  # noqa: UP036
     raise SystemExit("Hermes Gate runner requires Python 3.11 or newer; use that interpreter to run this file.")
 
 import tomllib
@@ -118,7 +121,7 @@ def run(
         return _result(mode, "NOT_CONFIGURED", started, [], "run hermes-gate init")
     try:
         config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, tomllib.TOMLDecodeError) as exc:
         return _result(mode, "ERROR", started, [], f"invalid profile: {exc}")
     spec = ""
     try:

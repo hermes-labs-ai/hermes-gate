@@ -26,7 +26,7 @@ def load_schema() -> dict[str, Any]:
     schema_resource = resources.files("hermes_gate").joinpath("schemas/gate-result-v1.schema.json")
     value = json.loads(schema_resource.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
-        raise ValueError("packaged gate-result/v1 schema is not an object")
+        raise TypeError("packaged gate-result/v1 schema is not an object")
     return value
 
 

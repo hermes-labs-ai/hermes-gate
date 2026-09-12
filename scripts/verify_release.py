@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import ast
 import configparser
-from email.parser import BytesParser
-from pathlib import Path
 import tarfile
 import tomllib
 import zipfile
+from email.parser import BytesParser
+from pathlib import Path
 
 
 class ReleaseError(ValueError):

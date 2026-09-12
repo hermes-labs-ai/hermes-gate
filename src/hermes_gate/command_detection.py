@@ -192,11 +192,7 @@ def _git_verb_and_c_dirs(args: list[str]) -> tuple[str | None, tuple[str, ...]]:
             c_dirs.append(item[2:])
             index += 1
             continue
-        if (
-            item.startswith("--git-dir=")
-            or item.startswith("--work-tree=")
-            or item.startswith("-c")
-        ):
+        if item.startswith(("--git-dir=", "--work-tree=", "-c")):
             index += 1
             continue
         if item.startswith("-"):

@@ -7,7 +7,6 @@ from pathlib import Path
 
 from hermes_gate.providers import normalize_coderabbit_output
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 

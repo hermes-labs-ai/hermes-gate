@@ -10,10 +10,18 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import run_adapter
-from .config import ConfigError, GateConfig, load_config
 from .classification import is_code_path
+from .config import ConfigError, GateConfig, load_config
 from .execution import Execution, run_argv
-from .gitstate import ContentReadError, changed_paths, diff_digest, git, git_dir, scope_paths, staged_paths
+from .gitstate import (
+    ContentReadError,
+    changed_paths,
+    diff_digest,
+    git,
+    git_dir,
+    scope_paths,
+    staged_paths,
+)
 from .providers import normalize_coderabbit_output
 from .receipts import read_receipt, valid_receipt, write_receipt
 from .repo_runner import run as run_repository

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import io
+import json
 import runpy
 import subprocess
 import sys

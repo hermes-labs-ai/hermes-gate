@@ -5,8 +5,8 @@ import json
 import os
 import stat
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 
 class GitError(RuntimeError):
@@ -20,8 +20,7 @@ class ContentReadError(RuntimeError):
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     proc = subprocess.run(
         ["git", "-C", str(root), *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
     )
     if check and proc.returncode:
