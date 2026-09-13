@@ -11,8 +11,16 @@ from pathlib import Path
 import pytest
 
 from hermes_gate.config import ConfigError, load_config
-from hermes_gate.engine import _provider_review_argv, _tool_version, boundary, fast, repair, review
-from hermes_gate.execution import run_argv
+from hermes_gate.engine import (
+    _provider_review_argv,
+    _state_file,
+    _tool_version,
+    boundary,
+    fast,
+    repair,
+    review,
+)
+from hermes_gate.execution import Execution, run_argv
 from hermes_gate.gitstate import ContentReadError, diff_digest, session_changed_paths, snapshot
 from hermes_gate.receipts import valid_receipt
 from hermes_gate.repo_runner import _execute
@@ -505,6 +513,45 @@ def test_review_nonzero_exit_never_creates_pass_receipt(repo: Path) -> None:
 
     assert fast(repo)["status"] == "PASS"
     assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
+
+
+def test_review_unavailable_does_not_consume_semantic_attempt(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    calls = 0
+
+    def provider(*args: object, **kwargs: object) -> Execution:
+        nonlocal calls
+        calls += 1
+        output = '{"type":"error"}' if calls == 1 else '{"type":"complete"}'
+        return Execution(("provider",), 0, 0, output, "")
+
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+
+    assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
+    assert review(repo)["status"] == "PASS"
+
+
+def test_review_budget_is_scoped_to_current_digest(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    _state_file(repo, "review-budget.json").write_text(
+        json.dumps({"digests": ["stale-digest-a", "stale-digest-b"]}), encoding="utf-8"
+    )
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr(
+        "hermes_gate.engine.run_argv",
+        lambda *args, **kwargs: Execution(("provider",), 0, 0, '{"type":"complete"}', ""),
+    )
+
+    assert review(repo)["status"] == "PASS"
 
 
 def test_coderabbit_argv_binds_dirty_and_committed_boundaries(repo: Path) -> None:
