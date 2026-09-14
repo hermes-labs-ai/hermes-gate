@@ -1,0 +1,31 @@
+{
+  "@context": "https://w3id.org/codemeta/3.1",
+  "@type": "SoftwareSourceCode",
+  "name": "hermes-gate",
+  "description": "Bounded, receipt-bound completion rail for coding agents. Runs a repository's own checks, records exactly which content and tool versions were checked, and reuses a PASS only while those bytes still match. No daemon, no runtime dependencies beyond Python 3.11+ and Git.",
+  "codeRepository": "https://github.com/hermes-labs-ai/hermes-gate",
+  "version": "0.1.4",
+  "license": "https://spdx.org/licenses/Apache-2.0",
+  "programmingLanguage": "Python",
+  "runtimePlatform": "Python >=3.11",
+  "author": [
+    {
+      "@type": "Person",
+      "givenName": "Rolando",
+      "familyName": "Bosch",
+      "identifier": "https://orcid.org/0009-0005-4896-1112"
+    }
+  ],
+  "url": "https://pypi.org/project/hermes-gate/",
+  "keywords": [
+    "ai-agents",
+    "coding-agent",
+    "completion-gate",
+    "ci",
+    "developer-tools",
+    "hermes-labs",
+    "quality-assurance",
+    "receipts",
+    "reproducibility"
+  ]
+}
