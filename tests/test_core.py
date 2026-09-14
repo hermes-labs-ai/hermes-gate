@@ -526,12 +526,14 @@ def test_review_unavailable_does_not_consume_semantic_attempt(
     def provider(*args: object, **kwargs: object) -> Execution:
         nonlocal calls
         calls += 1
-        output = '{"type":"error"}' if calls == 1 else '{"type":"complete"}'
+        output = '{"type":"error"}' if calls <= 2 else '{"type":"complete"}'
         return Execution(("provider",), 0, 0, output, "")
 
     monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
     monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
 
+    # Two unavailable results would exhaust the budget if either consumed an attempt.
+    assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
     assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
     assert review(repo)["status"] == "PASS"
 
@@ -552,6 +554,31 @@ def test_review_budget_is_scoped_to_current_digest(
     )
 
     assert review(repo)["status"] == "PASS"
+
+
+def test_review_parks_after_two_completed_attempts_on_current_digest(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    finding = json.dumps(
+        {"type": "finding", "severity": "critical", "category": "correctness", "message": "bug"}
+    )
+    calls = 0
+
+    def provider(*args: object, **kwargs: object) -> Execution:
+        nonlocal calls
+        calls += 1
+        return Execution(("provider",), 0, 0, f'{finding}\n{{"type":"complete"}}', "")
+
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+
+    assert review(repo)["status"] == "FAIL"
+    assert review(repo)["status"] == "FAIL"
+    assert review(repo)["status"] == "PARKED"
+    assert calls == 2
 
 
 def test_coderabbit_argv_binds_dirty_and_committed_boundaries(repo: Path) -> None:
