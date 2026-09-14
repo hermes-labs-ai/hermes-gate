@@ -13,6 +13,12 @@ It has no daemon and no runtime dependencies beyond Python 3.11+ and Git.
 Lifecycle hooks inspect receipts; they do not repair code, invoke a model, or
 authorize a push, pull request, or release.
 
+Used this way, it is a deterministic quality gate for AI-generated pull
+requests: the same commit passes or fails the same declared checks the same
+way every time, so a coding agent's own changes get a repeatable, receipt-bound
+result before a human reviews the PR — not a merge decision or a correctness
+proof (see [What PASS means](#what-pass-means)).
+
 ## Five-minute quickstart
 
 Install the published package, then enter the repository you want to gate:
