@@ -157,6 +157,34 @@ or unavailable review output is never relabeled PASS.
 commands. Codex integration preserves unrelated hook and instruction content.
 Claude settings and instruction surfaces remain outside Codex's ownership.
 
+## Claude Code plugin
+
+The repository ships a self-contained Claude Code plugin at
+[`claude-plugin/`](claude-plugin/) — it bundles its own copy of
+`src/hermes_gate` so a marketplace install works with no separate `pip
+install`. It wires three lifecycle hooks to the same `hermes-gate hook`
+event handlers used by the manual Claude integration above:
+
+| Event | Hook | Behavior |
+|---|---|---|
+| `SessionStart` | `session-start` | Injects the compact completion contract as additional context. Always continues. |
+| `Stop` | `stop` | Runs the cached fast gate against session-changed code paths and reports a non-PASS reason as an advisory `systemMessage`. Never blocks. |
+| `PreToolUse` (matcher `Bash`) | `pre-tool-use` | Denies a detected commit/push/PR boundary command that is missing its matching receipt; otherwise stays silent. |
+
+Every path fails open: a malformed payload, an unrecognized event, or an
+internal error returns `{"continue": true}` rather than blocking the
+session. Install it from this marketplace:
+
+```
+/plugin marketplace add hermes-labs-ai/claude-plugins
+/plugin install hermes-gate@hermes-labs
+```
+
+`tests/test_claude_plugin.py` verifies the bundled `claude-plugin/src`
+runtime is byte-identical to `src/hermes_gate` and exercises the hook
+script as a subprocess with no `hermes-gate` package installed, so the
+marketplace artifact is tested the same way Claude Code runs it.
+
 ## Hermes Agent quality-gate seam
 
 `hermes-gate delegate-judge` is a hidden integration command for one specific
