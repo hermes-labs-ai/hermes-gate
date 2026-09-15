@@ -26,6 +26,24 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   workspace returns a fixed `error` feedback rather than a schema failure.
   See README "Hermes Agent quality-gate seam".
 
+### Fixed
+
+- An unsupported `review.provider` is now a profile error instead of a permanent
+  `REVIEW_UNAVAILABLE`. Any provider name other than `coderabbit` ran its `argv`
+  verbatim, its output was parsed as CodeRabbit agent JSONL, and the resulting
+  `provider exited N` was reported as a retryable infrastructure outcome, so a
+  profile such as `provider = "hermes-pr-review"` with
+  `argv = ["hermes-pr-review"]` failed on every `review` call while `fast` kept
+  passing. `load_config` now rejects it, so `fast`, `review`, `full`, `repair`,
+  and `boundary` all return `ERROR: invalid profile: review.provider …` naming
+  the supported set. `review.argv[0]` may still name any compatible executable.
+- `hermes-gate doctor` reports an invalid profile as overall `ERROR` (was
+  `NOT_CONFIGURED`) and probes the review executable the profile names, resolved
+  the way `review` launches it (`PATH` or repository-relative), instead of a
+  fixed `coderabbit`/`cr` lookup. The `provider` block gains `name` and `argv0`;
+  an installer copy under `~/.local/bin` that is not on `PATH` is reported as
+  such rather than as available.
+
 ## [0.1.4] - 2026-09-09
 
 ### Fixed

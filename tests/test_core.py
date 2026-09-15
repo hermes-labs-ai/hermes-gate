@@ -22,7 +22,7 @@ from hermes_gate.engine import (
 )
 from hermes_gate.execution import Execution, run_argv
 from hermes_gate.gitstate import ContentReadError, diff_digest, session_changed_paths, snapshot
-from hermes_gate.receipts import valid_receipt
+from hermes_gate.receipts import read_receipt, valid_receipt
 from hermes_gate.repo_runner import _execute
 from hermes_gate.status import Status
 
@@ -636,3 +636,39 @@ def test_coderabbit_argv_preserves_inline_base_configuration(repo: Path) -> None
     argv = _provider_review_argv(load_config(repo), repo)
 
     assert argv == ("coderabbit", "review", "--agent", "--base=main")
+
+
+def test_config_rejects_unsupported_review_provider(repo: Path) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "hermes-pr-review"')
+        .replace('argv = ["coderabbit", "review", "--agent"]', 'argv = ["hermes-pr-review"]'),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match=r'review\.provider "hermes-pr-review".*supported: coderabbit'):
+        load_config(repo)
+    for command in (fast, review):
+        outcome = command(repo)
+        assert outcome["status"] == "ERROR"
+        assert outcome["reason"].startswith("invalid profile: review.provider")
+    assert read_receipt(repo, "fast") is None
+
+
+def test_config_accepts_alternate_executable_for_coderabbit_provider(repo: Path) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8").replace(
+            'argv = ["coderabbit", "review", "--agent"]', 'argv = ["cr", "review", "--agent"]'
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(repo)
+
+    assert config.review.provider == "coderabbit"
+    assert config.review.argv[0] == "cr"

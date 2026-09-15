@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from pathlib import Path
 from typing import Any
 
 from .codex_install import installed as codex_installed
-from .config import ConfigError, load_config
+from .config import ConfigError, ReviewSpec, load_config
 from .execution import run_argv
 from .gitstate import ContentReadError, diff_digest, repo_root, scope_paths
 from .init_repo import verify_runner
@@ -36,32 +37,58 @@ def _provider_auth_status(returncode: int, output: str) -> str:
     return "AUTHENTICATED" if returncode == 0 else "AUTH_REQUIRED"
 
 
+def _provider_executable(name: str, root: Path | None) -> str | None:
+    """Resolve the configured review executable the way `review` will launch it."""
+    found = shutil.which(name)
+    if found:
+        return str(Path(found).resolve())
+    if root is not None:
+        candidate = root / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def _provider_report(spec: ReviewSpec, root: Path | None) -> dict[str, Any]:
+    """Probe the executable the profile names, not a fixed binary."""
+    executable = spec.argv[0]
+    binary = _provider_executable(executable, root)
+    report: dict[str, Any] = {"name": spec.provider, "argv0": executable, "binary": binary}
+    if binary is None:
+        report["status"] = "NOT_CONFIGURED"
+        installer_copy = Path.home() / ".local" / "bin" / executable
+        if installer_copy.is_file():
+            report["detail"] = f"{installer_copy} exists but is not on PATH"
+        return report
+    execution = run_argv(
+        [binary, "auth", "status", "--agent"],
+        cwd=root or Path.cwd(),
+        timeout_seconds=5,
+        output_cap=4096,
+    )
+    detail = (execution.stdout or execution.stderr).strip()[:1000]
+    report["status"] = _provider_auth_status(execution.returncode, detail)
+    report["detail"] = detail
+    return report
+
+
 def diagnose(start: Path | None = None) -> dict[str, Any]:
     began = time.monotonic()
     root = repo_root(start)
     codex = codex_installed()
-    local_coderabbit = Path.home() / ".local" / "bin" / "coderabbit"
-    provider: dict[str, Any] = {
-        "binary": shutil.which("coderabbit")
-        or shutil.which("cr")
-        or (str(local_coderabbit) if local_coderabbit.is_file() else None)
-    }
-    if provider["binary"]:
-        execution = run_argv(
-            [provider["binary"], "auth", "status", "--agent"],
-            cwd=root or Path.cwd(),
-            timeout_seconds=5,
-            output_cap=4096,
-        )
-        detail = (execution.stdout or execution.stderr).strip()[:1000]
-        provider.update(
-            {
-                "status": _provider_auth_status(execution.returncode, detail),
-                "detail": detail,
-            }
-        )
-    else:
-        provider["status"] = "NOT_CONFIGURED"
+    config = None
+    profile: dict[str, Any] = {}
+    if root is not None:
+        try:
+            config = load_config(root)
+            profile = {"status": "PASS", "adapter_status": config.adapter_status}
+        except FileNotFoundError:
+            profile = {"status": "NOT_CONFIGURED", "next_action": "hermes-gate init"}
+        except ConfigError as exc:
+            profile = {"status": "ERROR", "reason": str(exc)}
+    # Without a usable profile, report on the default provider so the operator
+    # still learns whether the reviewer is ready once the profile is fixed.
+    provider = _provider_report(config.review if config is not None else ReviewSpec(), root)
     if root is None:
         return {
             "schema": "hermes-gate/doctor-v1",
@@ -71,13 +98,6 @@ def diagnose(start: Path | None = None) -> dict[str, Any]:
             "provider": provider,
             "elapsed_ms": round((time.monotonic() - began) * 1000),
         }
-    try:
-        config = load_config(root)
-        profile = {"status": "PASS", "adapter_status": config.adapter_status}
-    except FileNotFoundError:
-        profile = {"status": "NOT_CONFIGURED", "next_action": "hermes-gate init"}
-    except ConfigError as exc:
-        profile = {"status": "ERROR", "reason": str(exc)}
     runner_ok, runner_detail = verify_runner(root)
     try:
         digest = diff_digest(root, scope_paths(root))
@@ -93,7 +113,12 @@ def diagnose(start: Path | None = None) -> dict[str, Any]:
             "stale": bool(receipt and (digest is None or receipt.get("diff_sha256") != digest)),
         }
     statuses = [profile["status"], "PASS" if runner_ok else "NOT_CONFIGURED"]
-    overall = "ERROR" if input_error else ("PASS" if all(item == "PASS" for item in statuses) else "NOT_CONFIGURED")
+    if input_error or profile["status"] == "ERROR":
+        overall = "ERROR"
+    elif all(item == "PASS" for item in statuses):
+        overall = "PASS"
+    else:
+        overall = "NOT_CONFIGURED"
     return {
         "schema": "hermes-gate/doctor-v1",
         "status": overall,
