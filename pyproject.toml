@@ -37,6 +37,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://hermes-labs.ai/open-source"
+Documentation = "https://github.com/hermes-labs-ai/hermes-gate#readme"
 Repository = "https://github.com/hermes-labs-ai/hermes-gate"
 Issues = "https://github.com/hermes-labs-ai/hermes-gate/issues"
 Changelog = "https://github.com/hermes-labs-ai/hermes-gate/blob/main/CHANGELOG.md"
