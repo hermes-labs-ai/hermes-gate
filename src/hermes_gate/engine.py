@@ -186,17 +186,14 @@ def review(root: Path) -> dict[str, Any]:
         return result("review", Status.PASS, started, receipt=cached, cached=True)
     budget_path = _state_file(root, "review-budget.json")
     budget = _read_json(budget_path)
-    digests = list(budget.get("digests", []))
-    if digest not in digests and len(digests) >= 2:
+    attempts_by_digest = _review_attempts_by_digest(budget)
+    if attempts_by_digest.get(digest, 0) >= 2:
         return result(
             "review",
             Status.PARKED,
             started,
-            reason="one initial review and one re-review exhausted; run hermes-gate full",
+            reason="one initial review and one re-review exhausted for this diff; run hermes-gate full",
         )
-    if digest not in digests:
-        digests.append(digest)
-        _write_json(budget_path, {"digests": digests})
 
     provider_version = _tool_version(config.review.argv[0], root)
     provider_argv = _provider_review_argv(config, root)
@@ -225,6 +222,13 @@ def review(root: Path) -> dict[str, Any]:
     status = normalized.status
     findings = [asdict(item) for item in normalized.findings]
     reason = normalized.reason
+    # Provider/adapter failures are retryable infrastructure outcomes. Only a
+    # completed semantic result spends one of the two bounded attempts, and the
+    # budget is keyed by the exact current digest so stale prior diffs cannot
+    # park a changed review.
+    if status is not Status.REVIEW_UNAVAILABLE:
+        attempts_by_digest[digest] = attempts_by_digest.get(digest, 0) + 1
+        _write_json(budget_path, {"attempts_by_digest": attempts_by_digest})
     receipt = write_receipt(
         root,
         "review",
@@ -523,6 +527,23 @@ def _state_file(root: Path, name: str) -> Path:
     path = git_dir(root) / "hermes-gate" / "state" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _review_attempts_by_digest(budget: dict[str, Any]) -> dict[str, int]:
+    """Read current and legacy review budgets without letting old digests block."""
+    current = budget.get("attempts_by_digest")
+    if isinstance(current, dict):
+        return {
+            str(digest): int(attempts)
+            for digest, attempts in current.items()
+            if isinstance(digest, str) and isinstance(attempts, int) and attempts >= 0
+        }
+    # Older Gate versions stored one entry per attempted digest. Preserve that
+    # evidence as one attempt for each digest, but do not apply a global cap.
+    legacy = budget.get("digests", [])
+    if isinstance(legacy, list):
+        return {str(digest): 1 for digest in legacy if isinstance(digest, str)}
+    return {}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
