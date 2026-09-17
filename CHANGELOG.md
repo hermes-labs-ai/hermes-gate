@@ -6,6 +6,8 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-17
+
 ### Added
 
 - `hermes-gate delegate-judge`: a hidden CLI adapter for the NousResearch
@@ -142,7 +144,8 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 - Optional isolated PyGate 0.2.0+ and QuickGate.js 0.2.3+ adapters.
 - Git-internal runtime state, command-version receipts, OSS policy files, and package schema data.
 
-[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.5
 [0.1.4]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.4
 [0.1.3]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.3
 [0.1.2]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.2
