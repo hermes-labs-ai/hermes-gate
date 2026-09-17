@@ -211,14 +211,24 @@ def review(root: Path) -> dict[str, Any]:
             material_categories=config.review.material_categories,
         )
     provider = config.review.provider
+    fallback_attempted = False
+    fallback_provider = ""
+    fallback_reason = ""
     if (
         execution.unavailable
         or execution.timed_out
         or normalized.status is Status.REVIEW_UNAVAILABLE
     ):
+        fallback_argv = config.review.fallback_argv
+        if not fallback_argv and shutil.which("hermes-pr-review") and not changed_paths(root):
+            fallback_argv = ("hermes-pr-review",)
+        fallback_attempted = bool(fallback_argv)
+        fallback_provider = fallback_argv[0] if fallback_argv else ""
         fallback = _fallback_review(config, root, digest)
         if fallback is not None:
             execution, normalized, provider, provider_version = fallback
+        elif fallback_attempted:
+            fallback_reason = "fallback provider returned no usable review result"
     status = normalized.status
     findings = [asdict(item) for item in normalized.findings]
     reason = normalized.reason
@@ -243,6 +253,9 @@ def review(root: Path) -> dict[str, Any]:
             "suppressed_count": normalized.suppressed_count,
             "reviewed_paths": selected,
             "reason": reason,
+            "fallback_attempted": fallback_attempted,
+            "fallback_provider": fallback_provider,
+            "fallback_reason": fallback_reason,
         },
     )
     return result("review", status, started, reason=reason, receipt=receipt, findings=findings)

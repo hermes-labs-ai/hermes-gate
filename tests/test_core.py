@@ -515,6 +515,33 @@ def test_review_nonzero_exit_never_creates_pass_receipt(repo: Path) -> None:
     assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
 
 
+def test_review_receipt_preserves_unusable_fallback_metadata(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    fallback_argv = [sys.executable, "-c", "print('{\\\"type\\\":\\\"error\\\"}')"]
+    profile = profile_path.read_text(encoding="utf-8").replace(
+        "fallback_argv = []", f"fallback_argv = {json.dumps(fallback_argv)}"
+    )
+    profile_path.write_text(profile, encoding="utf-8")
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+
+    def provider(argv: tuple[str, ...], **kwargs: object) -> Execution:
+        if argv[0] == sys.executable:
+            return Execution(argv, 0, 0, '{"type":"error"}\n', "")
+        return Execution(argv, 0, 0, '{"type":"error"}\n', "")
+
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+    outcome = review(repo)
+    assert outcome["status"] == "REVIEW_UNAVAILABLE"
+    receipt = outcome["receipt"]
+    assert receipt["fallback_attempted"] is True
+    assert receipt["fallback_provider"] == sys.executable
+    assert receipt["fallback_reason"]
+
+
 def test_review_unavailable_does_not_consume_semantic_attempt(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
