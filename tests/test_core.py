@@ -570,6 +570,24 @@ def test_review_does_not_report_auto_fallback_without_parent_commit(
     assert outcome["receipt"]["fallback_reason"] == ""
 
 
+def test_boundary_rejects_invalid_profile_for_non_code_commit(repo: Path) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8").replace(
+            'provider = "coderabbit"', 'provider = "hermes-pr-review"'
+        ),
+        encoding="utf-8",
+    )
+    (repo / "README.md").write_text("documentation only\n", encoding="utf-8")
+    git(repo, "add", "README.md")
+
+    outcome = boundary(repo, "commit")
+
+    assert outcome["status"] == "ERROR"
+    assert outcome["reason"].startswith("invalid profile:")
+
+
 def test_review_unavailable_does_not_consume_semantic_attempt(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -268,16 +268,20 @@ def review(root: Path) -> dict[str, Any]:
 def boundary(root: Path, action: str) -> dict[str, Any]:
     started = time.monotonic()
     raw_selected = staged_paths(root) if action == "commit" else scope_paths(root)
+    try:
+        config = load_config(root)
+    except FileNotFoundError:
+        if not any(is_code_path(path) for path in raw_selected):
+            return result(
+                "boundary", Status.PASS, started, reason="non-code boundary is exempt", required=[]
+            )
+        return result("boundary", Status.NOT_CONFIGURED, started, reason="run hermes-gate init")
+    except ConfigError as exc:
+        return result("boundary", Status.ERROR, started, reason=f"invalid profile: {exc}")
     if not any(is_code_path(path) for path in raw_selected):
         return result(
             "boundary", Status.PASS, started, reason="non-code boundary is exempt", required=[]
         )
-    try:
-        config = load_config(root)
-    except FileNotFoundError:
-        return result("boundary", Status.NOT_CONFIGURED, started, reason="run hermes-gate init")
-    except ConfigError as exc:
-        return result("boundary", Status.ERROR, started, reason=f"invalid profile: {exc}")
     selected = [path for path in raw_selected if config.included(path)]
     digest, failure = _digest_or_error(root, selected, "boundary", started)
     if failure:
