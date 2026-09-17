@@ -11,6 +11,13 @@ class ConfigError(ValueError):
     pass
 
 
+# A provider names the output contract the engine can bind to the local diff and
+# parse; `review.argv[0]` names the executable and may differ. A name the engine
+# has no contract for would run its argv verbatim and could only ever produce an
+# unavailable or wrong review, so it is a profile error rather than a runtime one.
+SUPPORTED_REVIEW_PROVIDERS: tuple[str, ...] = ("coderabbit",)
+
+
 @dataclass(frozen=True)
 class CommandSpec:
     name: str
@@ -147,6 +154,13 @@ def load_config(root: Path) -> GateConfig:
     budget = float(gate.get("fast_budget_seconds", 8.0))
     if budget <= 0:
         raise ConfigError("gate.fast_budget_seconds must be positive")
+    provider = str(review.get("provider", "coderabbit"))
+    if provider not in SUPPORTED_REVIEW_PROVIDERS:
+        raise ConfigError(
+            f'review.provider "{provider}" is not a supported review provider; '
+            f"supported: {', '.join(SUPPORTED_REVIEW_PROVIDERS)} "
+            "(review.argv[0] may still name any compatible executable)"
+        )
     return GateConfig(
         root=root,
         fast_budget_seconds=budget,
@@ -165,7 +179,7 @@ def load_config(root: Path) -> GateConfig:
             blocking_threshold=str(lint.get("blocking_threshold", "MEDIUM")).upper(),
         ),
         review=ReviewSpec(
-            provider=str(review.get("provider", "coderabbit")),
+            provider=provider,
             argv=_strings(review.get("argv", list(ReviewSpec.argv)), "review.argv"),
             timeout_seconds=float(review.get("timeout_seconds", 180.0)),
             material_severities=tuple(

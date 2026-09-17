@@ -153,6 +153,15 @@ provider boundary. If it is unavailable, a clean committed diff may use an
 installed `hermes-pr-review` fallback. Unparseable, unauthenticated, timed-out,
 or unavailable review output is never relabeled PASS.
 
+`review.provider` names that output contract and must be `coderabbit`;
+`review.argv[0]` names the executable and may differ (for example a wrapper or
+the `cr` alias). Any other provider name is a profile error: `fast`, `review`,
+`full`, `repair`, and `boundary` all return `ERROR` with
+`invalid profile: review.provider …`, and `doctor` reports `profile.status:
+ERROR`, because a command the engine cannot bind to the diff or parse can only
+ever produce an unavailable or wrong review. `doctor` probes the executable the
+profile names, resolved the same way `review` launches it.
+
 `install-codex` and `uninstall-codex` are intentionally hidden integration
 commands. Codex integration preserves unrelated hook and instruction content.
 Claude settings and instruction surfaces remain outside Codex's ownership.
