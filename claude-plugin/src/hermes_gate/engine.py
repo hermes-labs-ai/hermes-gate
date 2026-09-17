@@ -221,7 +221,11 @@ def review(root: Path) -> dict[str, Any]:
     ):
         fallback_argv = config.review.fallback_argv
         if not fallback_argv and shutil.which("hermes-pr-review") and not changed_paths(root):
-            fallback_argv = ("hermes-pr-review",)
+            # The automatic fallback needs a parent commit to construct its argv.
+            # Do not report an attempt when that prerequisite prevents execution.
+            parent = git(root, "rev-parse", "HEAD^", check=False)
+            if parent.returncode == 0:
+                fallback_argv = ("hermes-pr-review",)
         fallback_attempted = bool(fallback_argv)
         fallback_provider = fallback_argv[0] if fallback_argv else ""
         fallback = _fallback_review(config, root, digest)

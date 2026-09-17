@@ -527,10 +527,10 @@ def test_review_receipt_preserves_unusable_fallback_metadata(
     profile_path.write_text(profile, encoding="utf-8")
     (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
     assert fast(repo)["status"] == "PASS"
+    calls: list[tuple[str, ...]] = []
 
     def provider(argv: tuple[str, ...], **kwargs: object) -> Execution:
-        if argv[0] == sys.executable:
-            return Execution(argv, 0, 0, '{"type":"error"}\n', "")
+        calls.append(argv)
         return Execution(argv, 0, 0, '{"type":"error"}\n', "")
 
     monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
@@ -540,6 +540,34 @@ def test_review_receipt_preserves_unusable_fallback_metadata(
     assert receipt["fallback_attempted"] is True
     assert receipt["fallback_provider"] == sys.executable
     assert receipt["fallback_reason"]
+    assert any(argv[0] == sys.executable for argv in calls)
+
+
+def test_review_does_not_report_auto_fallback_without_parent_commit(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "only commit")
+    assert fast(repo)["status"] == "PASS"
+    calls: list[tuple[str, ...]] = []
+
+    def provider(argv: tuple[str, ...], **kwargs: object) -> Execution:
+        calls.append(argv)
+        return Execution(argv, 0, 0, '{"type":"error"}\n', "")
+
+    monkeypatch.setattr("hermes_gate.engine.shutil.which", lambda _: "/usr/bin/hermes-pr-review")
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+    outcome = review(repo)
+
+    assert outcome["status"] == "REVIEW_UNAVAILABLE"
+    assert not any(argv[0] == "/usr/bin/hermes-pr-review" for argv in calls)
+    assert calls[-1][0] == "coderabbit"
+    assert outcome["receipt"]["fallback_attempted"] is False
+    assert outcome["receipt"]["fallback_provider"] == ""
+    assert outcome["receipt"]["fallback_reason"] == ""
 
 
 def test_review_unavailable_does_not_consume_semantic_attempt(
