@@ -9,7 +9,7 @@ def test_marketplace_action_metadata_is_a_safe_composite_action() -> None:
     assert "name: Hermes Gate" in manifest
     assert "using: composite" in manifest
     assert "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in manifest
-    assert 'default: 0.1.7' in manifest
+    assert 'default: 0.1.6' in manifest
     assert 'default: "3.11"' in manifest
     assert 'HERMES_GATE_VERSION: ${{ inputs.version }}' in manifest
     assert 'hermes-gate==${HERMES_GATE_VERSION}' in manifest

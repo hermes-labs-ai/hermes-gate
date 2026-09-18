@@ -42,7 +42,7 @@ one receipt-bound command in the checked-out repository:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: hermes-labs-ai/hermes-gate@v0.1.7
+  - uses: hermes-labs-ai/hermes-gate@v0.1.6
     with:
       command: full
 ```
