@@ -21,6 +21,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: python scripts/verify_release.py --tag "$RELEASE_TAG"
+      - name: Verify Marketplace Action default is a published release
+        run: python .github/scripts/check_action_default_published.py
       - name: Build distributions
         run: python -m build
       - name: Verify release artifact identity
