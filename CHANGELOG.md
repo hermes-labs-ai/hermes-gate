@@ -4,8 +4,6 @@ All notable changes to HermesGate will be documented here.
 
 The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
-## [Unreleased]
-
 ## [0.1.7] - 2026-09-18
 
 ### Added
