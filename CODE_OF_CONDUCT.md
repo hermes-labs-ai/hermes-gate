@@ -21,7 +21,7 @@ We are committed to making participation in this project a welcoming experience 
 
 ## Enforcement
 
-Instances of unacceptable behavior may be reported to **rbosch@lpci.ai**. All complaints will be reviewed and investigated promptly and fairly.
+Instances of unacceptable behavior may be reported to **roli@hermes-labs.ai**. All complaints will be reviewed and investigated promptly and fairly.
 
 Project maintainers who do not follow or enforce this Code of Conduct may face temporary or permanent repercussions.
 
