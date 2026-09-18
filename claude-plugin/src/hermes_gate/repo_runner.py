@@ -21,7 +21,7 @@ if sys.version_info < (3, 11):  # noqa: UP036
 
 import tomllib
 
-RUNNER_VERSION = "0.1.6"
+RUNNER_VERSION = "0.1.7"
 OUTPUT_CAP = 65536
 # Git's canonical empty tree: diffing it against HEAD reviews every committed byte.
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"

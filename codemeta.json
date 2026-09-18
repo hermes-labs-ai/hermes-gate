@@ -4,7 +4,7 @@
   "name": "hermes-gate",
   "description": "Bounded, receipt-bound completion rail for coding agents. Runs a repository's own checks, records exactly which content and tool versions were checked, and reuses a PASS only while those bytes still match. No daemon, no runtime dependencies beyond Python 3.11+ and Git.",
   "codeRepository": "https://github.com/hermes-labs-ai/hermes-gate",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "license": "https://spdx.org/licenses/Apache-2.0",
   "programmingLanguage": "Python",
   "runtimePlatform": "Python >=3.11",

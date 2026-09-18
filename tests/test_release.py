@@ -24,6 +24,7 @@ SPEC.loader.exec_module(MODULE)
 ReleaseError = MODULE.ReleaseError
 
 EXCEPTION = ROOT / "release" / "distribution-exceptions" / "v0.1.6-hermes-registry.json"
+EXCEPTION_TAG = "v0.1.6"
 ACTIVE_EXCEPTION_TIME = datetime(2026, 9, 18, 0, 29, tzinfo=UTC)
 
 
@@ -91,20 +92,20 @@ def test_distribution_exception_rejects_wrong_record_fields(
     path = tmp_path / "exception.json"
     path.write_text(json.dumps(record), encoding="utf-8")
     with pytest.raises(ReleaseError, match=message):
-        MODULE.verify_distribution_exception(path, TAG, now=ACTIVE_EXCEPTION_TIME)
+        MODULE.verify_distribution_exception(path, EXCEPTION_TAG, now=ACTIVE_EXCEPTION_TIME)
 
 
 def test_distribution_exception_rejects_expiration_and_wrong_requested_tag() -> None:
     with pytest.raises(ReleaseError, match="not yet active"):
         MODULE.verify_distribution_exception(
-            EXCEPTION, TAG, now=datetime(2026, 9, 18, 0, 28, 10, tzinfo=UTC)
+            EXCEPTION, EXCEPTION_TAG, now=datetime(2026, 9, 18, 0, 28, 10, tzinfo=UTC)
         )
     assert "PASS:" in MODULE.verify_distribution_exception(
-        EXCEPTION, TAG, now=datetime(2026, 9, 18, 0, 28, 11, tzinfo=UTC)
+        EXCEPTION, EXCEPTION_TAG, now=datetime(2026, 9, 18, 0, 28, 11, tzinfo=UTC)
     )
     with pytest.raises(ReleaseError, match="expired"):
         MODULE.verify_distribution_exception(
-            EXCEPTION, TAG, now=datetime(2026, 9, 18, 12, 28, 11, tzinfo=UTC)
+            EXCEPTION, EXCEPTION_TAG, now=datetime(2026, 9, 18, 12, 28, 11, tzinfo=UTC)
         )
     with pytest.raises(ReleaseError, match="not 'v0.1.5'"):
         MODULE.verify_distribution_exception(EXCEPTION, "v0.1.5", now=ACTIVE_EXCEPTION_TIME)
@@ -112,7 +113,7 @@ def test_distribution_exception_rejects_expiration_and_wrong_requested_tag() -> 
 
 def test_distribution_exception_never_bypasses_identity_failure(tmp_path: Path) -> None:
     root = tmp_path / "repo"
-    shutil.copytree(ROOT, root)
+    shutil.copytree(ROOT, root, ignore=shutil.ignore_patterns(".git"))
     init = root / "src" / "hermes_gate" / "__init__.py"
     init.write_text(init.read_text().replace(f'"{VERSION}"', '"9.9.9"'), encoding="utf-8")
     with pytest.raises(ReleaseError, match="__version__"):

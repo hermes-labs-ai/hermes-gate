@@ -34,6 +34,25 @@ hermes-gate full
 hermes-gate doctor
 ```
 
+## GitHub Action
+
+Use the Marketplace action after checkout to install the published CLI and run
+one receipt-bound command in the checked-out repository:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: hermes-labs-ai/hermes-gate@v0.1.7
+    with:
+      command: full
+```
+
+`command` accepts `fast` (the default), `full`, `review`, or `doctor`.
+`version` defaults to the action's released CLI version and may be pinned to a
+different published version. `python-version` defaults to 3.11, and
+`working-directory` defaults to the checkout root. The action runs the same
+local Gate command; it does not grant a merge or release authorization.
+
 For HermesGate development, run `python -m pip install .` from a local checkout
 instead. Release builds verify the tag, package and runner versions, tracked
 runner, distribution metadata, and packaged source bytes before upload; they also reject versions

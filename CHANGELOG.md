@@ -6,6 +6,15 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-17
+
+### Added
+
+- A GitHub Marketplace composite action at the repository root. It installs the
+  released HermesGate CLI, then runs an explicit `fast`, `full`, `review`, or
+  `doctor` command in the selected checkout directory. The action remains a
+  receipt runner and does not grant merge or release authorization.
+
 ## [0.1.6] - 2026-09-17
 
 ### Fixed
@@ -153,7 +162,8 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 - Optional isolated PyGate 0.2.0+ and QuickGate.js 0.2.3+ adapters.
 - Git-internal runtime state, command-version receipts, OSS policy files, and package schema data.
 
-[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.7
 [0.1.6]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.6
 [0.1.5]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.5
 [0.1.4]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.4
