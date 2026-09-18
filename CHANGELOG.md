@@ -6,7 +6,7 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
-## [0.1.7] - 2026-09-17
+## [0.1.7] - 2026-09-18
 
 ### Added
 
@@ -14,6 +14,21 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
   released HermesGate CLI, then runs an explicit `fast`, `full`, `review`, or
   `doctor` command in the selected checkout directory. The action remains a
   receipt runner and does not grant merge or release authorization.
+- An Agent Plugins 1.0.0 manifest at `claude-plugin/plugin.json`. That
+  specification resolves a plugin manifest at the plugin root, and
+  `.claude-plugin/` is not one of its recognized locations, so external plugin
+  registries could not read the Claude Code plugin at all. The Claude Code
+  manifest at `claude-plugin/.claude-plugin/plugin.json` is unchanged apart from
+  its version, and Claude Code still loads the plugin exactly as before.
+
+### Changed
+
+- `scripts/verify_release.py` now fails the release closed when the two plugin
+  manifests disagree on `name`, `version`, `description`, or `license`, when
+  either drifts from the packaged version, or when the root manifest carries a
+  `$schema` or a top-level field that Agent Plugins 1.0.0 does not define.
+- The Claude Code plugin manifest version tracks the packaged version again; it
+  was left at `0.1.6` when the project moved to `0.1.7`.
 
 ## [0.1.6] - 2026-09-17
 

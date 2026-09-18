@@ -61,6 +61,43 @@ def test_release_identity_rejects_tag_and_source_version_drift(
         MODULE.verify(runner_root, TAG)
 
 
+@pytest.mark.parametrize(
+    ("manifest", "mutation", "message"),
+    [
+        ("claude-plugin/plugin.json", {"version": "9.9.9"}, "version '9.9.9' must equal"),
+        (
+            "claude-plugin/.claude-plugin/plugin.json",
+            {"version": "9.9.9"},
+            "version '9.9.9' must equal",
+        ),
+        ("claude-plugin/plugin.json", {"$schema": "https://example.test/x"}, "must equal"),
+        ("claude-plugin/plugin.json", {"displayName": "hermes-gate"}, "rejects top-level field"),
+        ("claude-plugin/plugin.json", {"description": "drifted"}, "disagree on"),
+    ],
+)
+def test_release_identity_rejects_plugin_manifest_drift(
+    built_dist: Path, tmp_path: Path, manifest: str, mutation: dict, message: str
+) -> None:
+    root = tmp_path / "repo"
+    shutil.copytree(built_dist, root)
+    path = root / manifest
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record.update(mutation)
+    path.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ReleaseError, match=message):
+        MODULE.verify(root, TAG)
+
+
+def test_release_identity_rejects_a_missing_agent_plugins_manifest(
+    built_dist: Path, tmp_path: Path
+) -> None:
+    root = tmp_path / "repo"
+    shutil.copytree(built_dist, root)
+    (root / "claude-plugin" / "plugin.json").rename(root / "claude-plugin" / "plugin.json.bak")
+    with pytest.raises(ReleaseError, match="plugin manifest is missing"):
+        MODULE.verify(root, TAG)
+
+
 def test_release_identity_rejects_tracked_runner_drift(built_dist: Path, tmp_path: Path) -> None:
     root = tmp_path / "repo"
     shutil.copytree(built_dist, root)
