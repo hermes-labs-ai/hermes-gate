@@ -14,7 +14,7 @@ inputs:
   version:
     description: Published hermes-gate version to install from PyPI
     required: false
-    default: 0.1.7
+    default: 0.1.6
   python-version:
     description: Python version used to install and run Hermes Gate
     required: false
