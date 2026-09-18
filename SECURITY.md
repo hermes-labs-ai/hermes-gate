@@ -14,7 +14,7 @@ minor version.
 
 Use the repository's private report form at
 `https://github.com/hermes-labs-ai/hermes-gate/security/advisories/new`. If that
-form is unavailable, email `rbosch@lpci.ai`. Keep exploit details out of public
+form is unavailable, email `roli@hermes-labs.ai`. Keep exploit details out of public
 issues and discussions.
 
 Include the affected version, a minimal reproduction, impact, and any suggested
