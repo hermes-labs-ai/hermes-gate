@@ -7,6 +7,7 @@ import argparse
 import ast
 import configparser
 import json
+import re
 import tarfile
 import tomllib
 import zipfile
@@ -25,21 +26,25 @@ class ReleaseError(ValueError):
 AGENT_PLUGIN_MANIFEST = "claude-plugin/plugin.json"
 CLAUDE_PLUGIN_MANIFEST = "claude-plugin/.claude-plugin/plugin.json"
 AGENT_PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
-AGENT_PLUGIN_FIELDS = frozenset(
-    {
-        "$schema",
-        "name",
-        "version",
-        "description",
-        "author",
-        "homepage",
-        "repository",
-        "license",
-        "keywords",
-        "extensions",
-    }
-)
+# Agent Plugins 1.0.0 §5: the manifest schema is closed and every permitted field has a
+# mandatory JSON type. A string field holding a list, or an author holding a non-string
+# name, is a schema violation that a conforming client rejects.
+AGENT_PLUGIN_FIELD_TYPES = {
+    "$schema": str,
+    "name": str,
+    "version": str,
+    "description": str,
+    "author": dict,
+    "homepage": str,
+    "repository": str,
+    "license": str,
+    "keywords": list,
+    "extensions": dict,
+}
+AGENT_PLUGIN_FIELDS = frozenset(AGENT_PLUGIN_FIELD_TYPES)
 AGENT_PLUGIN_REQUIRED = ("$schema", "name", "version", "description")
+AGENT_PLUGIN_AUTHOR_FIELDS = frozenset({"name", "email", "url"})
+AGENT_PLUGIN_NAME = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 SHARED_PLUGIN_FIELDS = ("name", "version", "description", "license")
 
 _V016_HERMES_REGISTRY_EXCEPTION = {
@@ -135,6 +140,32 @@ def _literal_version(path: Path, variable: str) -> str:
     raise ReleaseError(f"{path}: literal {variable} assignment not found")
 
 
+def _verify_agent_plugin_types(manifest: dict) -> None:
+    """Enforce the mandatory JSON types Agent Plugins 1.0.0 gives each permitted field."""
+    for field, expected in AGENT_PLUGIN_FIELD_TYPES.items():
+        if field in manifest and not isinstance(manifest[field], expected):
+            raise ReleaseError(
+                f"{AGENT_PLUGIN_MANIFEST}: field {field!r} must be a "
+                f"{expected.__name__}, not {type(manifest[field]).__name__}"
+            )
+
+    name = manifest["name"]
+    if not 1 <= len(name) <= 64 or not AGENT_PLUGIN_NAME.match(name):
+        raise ReleaseError(f"{AGENT_PLUGIN_MANIFEST}: name {name!r} is not a valid plugin name")
+
+    author = manifest.get("author", {})
+    unexpected = sorted(set(author) - AGENT_PLUGIN_AUTHOR_FIELDS)
+    if unexpected:
+        raise ReleaseError(f"{AGENT_PLUGIN_MANIFEST}: author rejects field(s) {unexpected!r}")
+    if not all(isinstance(value, str) for value in author.values()):
+        raise ReleaseError(f"{AGENT_PLUGIN_MANIFEST}: every author value must be a string")
+
+    if not all(isinstance(keyword, str) for keyword in manifest.get("keywords", [])):
+        raise ReleaseError(f"{AGENT_PLUGIN_MANIFEST}: every keyword must be a string")
+    if not all(isinstance(value, dict) for value in manifest.get("extensions", {}).values()):
+        raise ReleaseError(f"{AGENT_PLUGIN_MANIFEST}: every extensions namespace must be an object")
+
+
 def verify_plugin_manifests(root: Path, version: str) -> str:
     """Fail closed when either plugin manifest drifts from the other or from the release."""
     manifests: dict[str, dict] = {}
@@ -171,6 +202,7 @@ def verify_plugin_manifests(root: Path, version: str) -> str:
         raise ReleaseError(
             f"{AGENT_PLUGIN_MANIFEST}: Agent Plugins 1.0.0 requires field(s) {missing!r}"
         )
+    _verify_agent_plugin_types(agent_manifest)
 
     drifted = sorted(
         field
