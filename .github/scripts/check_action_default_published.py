@@ -83,48 +83,66 @@ def _direct_child_range(
     return None
 
 
+def _closing_quote_index(value: str) -> int | None:
+    """Return the index of the closing quote matching `value[0]` (a quote
+    character), or None if unterminated.
+
+    Honors each YAML quote form's escape rule: a single-quoted scalar escapes
+    an embedded `'` by doubling it (`''`); a double-quoted scalar escapes an
+    embedded `"` with a backslash (`\\"`). A naive "find the next quote
+    character" scan (hermes-gate review, correctness, major) mistook the
+    escape's first character for the terminator on input like
+    `'0.1.7'' # incompatible' # note` (a valid, if perverse, single-quoted
+    scalar whose real value -- confirmed against PyYAML -- is
+    `0.1.7' # incompatible`), truncating early and accepting a value the
+    guard should have rejected. This scans past an escaped quote instead of
+    stopping at it.
+    """
+    quote = value[0]
+    i = 1
+    while i < len(value):
+        if quote == "'" and value[i] == "'":
+            if i + 1 < len(value) and value[i + 1] == "'":
+                i += 2
+                continue
+            return i
+        if quote == '"':
+            if value[i] == "\\":
+                i += 2
+                continue
+            if value[i] == '"':
+                return i
+        i += 1
+    return None
+
+
 def _strip_inline_comment(value: str) -> str:
     """Return `value` with any trailing YAML comment removed.
 
     A `#` only starts a comment outside of a quoted scalar: for an unquoted
     value, cut at the first " #" (a hash preceded by whitespace) and rstrip;
     for a value that starts with a quote, the scalar ends at its matching
-    closing quote and everything after that (including a `#`) is a comment --
-    but a `#` *inside* the quotes is ordinary content, not a comment marker.
-
-    Both YAML quote forms escape an embedded quote by doubling/backslashing
-    it rather than ending the scalar there: `'it''s'` is the single string
-    `it's`, and `"say \\"hi\\""` is `say "hi"`. A naive "find the next quote
-    character" scan (hermes-gate review, correctness, major) mistook the
-    escape's first character for the terminator on input like
-    `'0.1.7'' # incompatible' # note` (a valid, if perverse, single-quoted
-    scalar whose real value is `0.1.7' # incompatible`), truncating early and
-    accepting a value the guard should have rejected. This scans past an
-    escaped quote instead of stopping at it.
+    closing quote (see `_closing_quote_index`) and only whitespace-then-`#`
+    after that is a comment -- a `#` *inside* the quotes is ordinary content,
+    never a comment marker. Any other, non-comment content after the closing
+    quote is not valid YAML; rather than silently discard it (hermes-gate
+    review, correctness, major: `default: "0.1.7" trailing` returning the
+    quoted prefix would falsely accept a malformed manifest), this returns
+    the whole raw value unchanged so it fails the version comparison instead
+    of a false pass.
     """
     value = value.strip()
     if not value:
         return value
-    if value[0] == "'":
-        i = 1
-        while i < len(value):
-            if value[i] == "'":
-                if i + 1 < len(value) and value[i + 1] == "'":
-                    i += 2
-                    continue
-                return value[: i + 1]
-            i += 1
-        return value  # Unterminated quote; treat the remainder as content.
-    if value[0] == '"':
-        i = 1
-        while i < len(value):
-            if value[i] == "\\":
-                i += 2
-                continue
-            if value[i] == '"':
-                return value[: i + 1]
-            i += 1
-        return value  # Unterminated quote; treat the remainder as content.
+    if value[0] in "\"'":
+        closing = _closing_quote_index(value)
+        if closing is None:
+            return value  # Unterminated quote; treat the remainder as content.
+        remainder = value[closing + 1 :]
+        trimmed = remainder.strip()
+        if trimmed and not (remainder[:1].isspace() and trimmed.startswith("#")):
+            return value
+        return value[: closing + 1]
     comment_at = value.find(" #")
     return value[:comment_at].rstrip() if comment_at != -1 else value
 

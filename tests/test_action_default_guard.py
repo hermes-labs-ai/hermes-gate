@@ -476,6 +476,28 @@ inputs:
     assert _input_default(manifest, "version") == "0.1.7' # incompatible"
 
 
+def test_input_default_rejects_non_comment_trailing_content() -> None:
+    """`hermes-gate review` (correctness, major): `"0.1.7" trailing` is not
+    valid YAML (only whitespace-then-`#` may follow a quoted scalar). Silently
+    discarding the trailing token would falsely accept it as `0.1.7`; instead
+    the raw value must survive unchanged so it fails the version comparison."""
+    manifest = """\
+inputs:
+  version:
+    description: x
+    required: false
+    default: "0.1.7" trailing
+"""
+    assert _input_default(manifest, "version") == '"0.1.7" trailing'
+
+
+def test_input_default_allows_trailing_whitespace_with_no_comment() -> None:
+    """Trailing whitespace and nothing else after a quoted scalar is
+    ordinary, valid YAML -- must not be treated as invalid trailing content."""
+    manifest = 'inputs:\n  version:\n    description: x\n    required: false\n    default: "0.1.7"   \n'
+    assert _input_default(manifest, "version") == "0.1.7"
+
+
 def test_read_action_default_matches_a_second_independent_read() -> None:
     """Cross-check `read_action_default()` against a second, independent
     extraction of the same `inputs.version.default` line -- not merely a type
