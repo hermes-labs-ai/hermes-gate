@@ -23,6 +23,7 @@ check_published = _MODULE["check_published"]
 tag_has_action_yml = _MODULE["tag_has_action_yml"]
 fetch_pypi_releases = _MODULE["fetch_pypi_releases"]
 _input_default = _MODULE["_input_default"]
+_manifest_has_ref_fallback = _MODULE["_manifest_has_ref_fallback"]
 
 
 def _releases(*published: str) -> dict:
@@ -106,14 +107,65 @@ def test_readme_and_default_mismatch_fails_before_any_network_call() -> None:
 
 
 def test_empty_default_skips_the_mismatch_check_entirely() -> None:
-    """An absent/empty default never fails the mismatch check, whatever the README says."""
+    """An absent/empty default never fails the mismatch check, whatever the README says
+    -- as long as action.yml proves it actually derives the version from the ref
+    (`manifest_has_ref_fallback` defaults to True when the caller doesn't care)."""
     message = evaluate(
         default=None,
         readme_version="0.1.6",
         release_tag="",
         local_action_yml_exists=True,
+        manifest_has_ref_fallback=True,
         fetch_pypi_releases=lambda: _releases("0.1.6"),
         tag_has_action_yml=lambda version: True,
+    )
+    assert "PASS" in message
+
+
+def test_empty_default_without_ref_fallback_fails_closed() -> None:
+    """hermes-pr-review finding: an empty default must not be trusted blindly.
+
+    If action.yml drops the literal default but never wires up a
+    `github.action_ref`-derived fallback, a copied invocation without an
+    explicit `with: version:` would resolve to `pip install hermes-gate==`
+    (an empty pin). The guard must fail closed instead of assuming the best.
+    """
+    with pytest.raises(ValueError, match="github.action_ref"):
+        evaluate(
+            default=None,
+            readme_version="0.1.8",
+            release_tag="v0.1.8",
+            local_action_yml_exists=True,
+            manifest_has_ref_fallback=False,
+            fetch_pypi_releases=_unreachable,
+            tag_has_action_yml=_unreachable,
+        )
+
+
+def test_empty_default_with_ref_fallback_passes_the_release_case() -> None:
+    """The same release-being-published case passes once the fallback is proven."""
+    message = evaluate(
+        default=None,
+        readme_version="0.1.8",
+        release_tag="v0.1.8",
+        local_action_yml_exists=True,
+        manifest_has_ref_fallback=True,
+        fetch_pypi_releases=_unreachable,
+        tag_has_action_yml=_unreachable,
+    )
+    assert "PASS" in message
+
+
+def test_literal_default_ignores_ref_fallback_state() -> None:
+    """When a literal default is present, `manifest_has_ref_fallback` is irrelevant."""
+    message = evaluate(
+        default="0.1.8",
+        readme_version="0.1.8",
+        release_tag="v0.1.8",
+        local_action_yml_exists=True,
+        manifest_has_ref_fallback=False,
+        fetch_pypi_releases=_unreachable,
+        tag_has_action_yml=_unreachable,
     )
     assert "PASS" in message
 
@@ -315,3 +367,17 @@ def test_read_action_default_matches_current_main() -> None:
     read_action_default = _MODULE["read_action_default"]
     default = read_action_default()
     assert default is None or isinstance(default, str)
+
+
+def test_manifest_has_ref_fallback_true_when_referenced() -> None:
+    assert _manifest_has_ref_fallback("steps:\n  - run: echo ${{ github.action_ref }}\n") is True
+
+
+def test_manifest_has_ref_fallback_false_when_absent() -> None:
+    assert _manifest_has_ref_fallback("steps:\n  - run: echo ${{ inputs.version }}\n") is False
+
+
+def test_manifest_has_ref_fallback_matches_current_main() -> None:
+    """End-to-end sanity check against the real action.yml on disk."""
+    manifest_has_ref_fallback = _MODULE["manifest_has_ref_fallback"]
+    assert isinstance(manifest_has_ref_fallback(), bool)

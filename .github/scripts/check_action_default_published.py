@@ -9,7 +9,13 @@ only version a user copying the quickstart actually asks for. `action.yml`'s
 it does, it must agree with the README. It may instead be empty or absent
 (the install version derived at runtime from `github.action_ref` instead, the
 psf/black pattern) -- in that case there is nothing to compare it to, so the
-default is skipped entirely and the guard reasons about the README ref alone.
+default comparison is skipped. But an empty default is only safe to skip past
+if action.yml actually *has* that ref-derived fallback wired in; otherwise a
+copied `uses: .../hermes-gate@vX` invocation that does not set `with:
+version:` would resolve `${{ inputs.version }}` to an empty string and `pip
+install hermes-gate==` would fail outright. This guard fails closed on that
+too: an empty/absent default requires evidence (`github.action_ref` appearing
+in action.yml) that some fallback is actually implemented, not just assumed.
 
 Two cases, independent of whether a literal default is present:
 
@@ -120,6 +126,29 @@ def read_action_default() -> str | None:
     return _input_default(manifest, "version")
 
 
+def _manifest_has_ref_fallback(manifest: str) -> bool:
+    """Return whether `manifest` shows evidence of deriving the install
+    version from `github.action_ref` (the psf/black pattern) rather than only
+    from `inputs.version`.
+
+    This is a coarse presence check, not a semantic proof that the composite
+    shell is correct -- but it is enough to fail closed on the regression an
+    empty default would otherwise hide: `hermes-pr-review` flagged that
+    treating an empty/absent default as automatic proof of ref-derived
+    installation, with no check that the fallback is actually implemented,
+    lets a copied invocation silently resolve to `pip install hermes-gate==`
+    (an empty pin) if a future action.yml drops the literal default without
+    wiring up the fallback.
+    """
+    return "github.action_ref" in manifest
+
+
+def manifest_has_ref_fallback() -> bool:
+    """Return `_manifest_has_ref_fallback` for the real action.yml on disk."""
+    manifest = (ROOT / "action.yml").read_text(encoding="utf-8")
+    return _manifest_has_ref_fallback(manifest)
+
+
 def read_readme_ref() -> str:
     """Return the version named by the README's copyable Action ref."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -183,6 +212,7 @@ def evaluate(
     readme_version: str,
     release_tag: str,
     local_action_yml_exists: bool,
+    manifest_has_ref_fallback: bool = True,
     fetch_pypi_releases=fetch_pypi_releases,
     tag_has_action_yml=tag_has_action_yml,
 ) -> str:
@@ -190,16 +220,28 @@ def evaluate(
 
     The README ref (`readme_version`) is the version this guard reasons about.
     `default` is a *consistency* check when action.yml carries a literal one;
-    an empty/absent default (`None`) skips that comparison entirely rather
-    than failing, since the version is then pinned by the ref at install time.
+    an empty/absent default (`None`) skips that comparison, but only when
+    `manifest_has_ref_fallback` proves action.yml actually derives the install
+    version from the ref instead -- an empty default with no such fallback
+    fails closed rather than being trusted blindly (see `manifest_has_ref_fallback`
+    docstring; irrelevant, and defaulted True, whenever `default` is truthy).
 
     Pure decision logic, factored out of `main()` so tests can inject fake
     `fetch_pypi_releases`/`tag_has_action_yml` callables instead of touching
     the network or the real action.yml/README.md.
     """
-    if default and default != readme_version:
+    if default:
+        if default != readme_version:
+            raise ValueError(
+                f"action.yml default {default!r} does not match README ref v{readme_version!r}"
+            )
+    elif not manifest_has_ref_fallback:
         raise ValueError(
-            f"action.yml default {default!r} does not match README ref v{readme_version!r}"
+            "action.yml has no literal 'version' default and no evidence "
+            "(github.action_ref) of deriving the install version from the Action "
+            "ref instead; a copied invocation without an explicit `with: version:` "
+            "would resolve to an empty pin (pip install hermes-gate==) -- keep a "
+            "literal default or wire up the ref-derived fallback before removing it"
         )
 
     if release_tag == f"v{readme_version}":
@@ -242,6 +284,7 @@ def main() -> None:
         readme_version=readme_version,
         release_tag=release_tag,
         local_action_yml_exists=(ROOT / "action.yml").is_file(),
+        manifest_has_ref_fallback=manifest_has_ref_fallback(),
     )
     print(message)
 
