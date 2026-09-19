@@ -6,16 +6,21 @@ call. The version this guard reasons about is always the one in the README's
 copyable `uses: hermes-labs-ai/hermes-gate@vX` example, because that is the
 only version a user copying the quickstart actually asks for. `action.yml`'s
 `version` input MAY also carry a literal `default: X` (today's main does); when
-it does, it must agree with the README. It may instead be empty or absent
-(the install version derived at runtime from `github.action_ref` instead, the
-psf/black pattern) -- in that case there is nothing to compare it to, so the
-default comparison is skipped. But an empty default is only safe to skip past
-if action.yml actually *has* that ref-derived fallback wired in; otherwise a
-copied `uses: .../hermes-gate@vX` invocation that does not set `with:
-version:` would resolve `${{ inputs.version }}` to an empty string and `pip
-install hermes-gate==` would fail outright. This guard fails closed on that
-too: an empty/absent default requires evidence (`github.action_ref` appearing
-in action.yml) that some fallback is actually implemented, not just assumed.
+it does, it must agree with the README. It may instead be empty or absent (the
+install version derived at runtime from the Action ref instead, the psf/black
+pattern) -- in that case there is nothing to compare it to, so the default
+comparison is simply skipped. Whether an empty default is *safe* to skip past
+(i.e. whether action.yml actually implements a working ref-derived resolver)
+is a property of action.yml, not of this guard: it is asserted by
+`tests/test_action_metadata.py`, owned by whichever change makes the default
+empty. An earlier revision of this guard tried to re-check that property here
+too, via a bare `"github.action_ref" in manifest` substring search; an
+independent verifier showed that check wrong in both directions (a comment
+mentioning `github.action_ref` with no working resolver still passed; a
+resolver spelled as the env var `$GITHUB_ACTION_REF` instead of the context
+expression still failed), so it was removed rather than patched further --
+it was a second, weaker source of truth for something action.yml's own tests
+already own.
 
 Two cases, independent of whether a literal default is present:
 
@@ -32,9 +37,11 @@ Two cases, independent of whether a literal default is present:
   at all -- the previous version of this guard checked only PyPI and the
   README/default match, so it printed PASS. The tag check is proven against
   the public GitHub contents API (`action.yml?ref=vX`) so a shallow, tagless
-  `actions/checkout` needs no extra fetch depth and no token for this public
-  repository. A network failure fails closed with a readable message; it
-  never falls through to a pass.
+  `actions/checkout` needs no extra fetch depth. It authenticates with
+  `GITHUB_TOKEN` when the workflow provides one (avoids shared-runner-IP rate
+  limiting; never required for this public repo, and never sent to PyPI). A
+  network failure fails closed with a readable message; it never falls
+  through to a pass.
 """
 
 from __future__ import annotations
@@ -76,6 +83,28 @@ def _direct_child_range(
     return None
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Return `value` with any trailing YAML comment removed.
+
+    A `#` only starts a comment outside of a quoted scalar: for an unquoted
+    value, cut at the first " #" (a hash preceded by whitespace) and rstrip;
+    for a value that starts with a quote, the scalar ends at the matching
+    closing quote and everything after that (including a `#`) is a comment --
+    but a `#` *inside* the quotes is ordinary content, not a comment marker.
+    """
+    value = value.strip()
+    if not value:
+        return value
+    quote = value[0] if value[0] in "\"'" else None
+    if quote:
+        closing = value.find(quote, 1)
+        if closing == -1:
+            return value  # Unterminated quote; treat the remainder as content.
+        return value[: closing + 1]
+    comment_at = value.find(" #")
+    return value[:comment_at].rstrip() if comment_at != -1 else value
+
+
 def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         return value[1:-1]
@@ -113,7 +142,8 @@ def _input_default(manifest: str, input_name: str) -> str | None:
     field_level = min(indent for indent, _ in lines[start:end])
     for indent, content in lines[start:end]:
         if indent == field_level and content.startswith("default:"):
-            value = _unquote(content[len("default:") :].strip())
+            raw_value = content[len("default:") :]
+            value = _unquote(_strip_inline_comment(raw_value))
             return value or None
     return None
 
@@ -124,29 +154,6 @@ def read_action_default() -> str | None:
     by the Action ref itself rather than by a literal default)."""
     manifest = (ROOT / "action.yml").read_text(encoding="utf-8")
     return _input_default(manifest, "version")
-
-
-def _manifest_has_ref_fallback(manifest: str) -> bool:
-    """Return whether `manifest` shows evidence of deriving the install
-    version from `github.action_ref` (the psf/black pattern) rather than only
-    from `inputs.version`.
-
-    This is a coarse presence check, not a semantic proof that the composite
-    shell is correct -- but it is enough to fail closed on the regression an
-    empty default would otherwise hide: `hermes-pr-review` flagged that
-    treating an empty/absent default as automatic proof of ref-derived
-    installation, with no check that the fallback is actually implemented,
-    lets a copied invocation silently resolve to `pip install hermes-gate==`
-    (an empty pin) if a future action.yml drops the literal default without
-    wiring up the fallback.
-    """
-    return "github.action_ref" in manifest
-
-
-def manifest_has_ref_fallback() -> bool:
-    """Return `_manifest_has_ref_fallback` for the real action.yml on disk."""
-    manifest = (ROOT / "action.yml").read_text(encoding="utf-8")
-    return _manifest_has_ref_fallback(manifest)
 
 
 def read_readme_ref() -> str:
@@ -165,10 +172,10 @@ def check_published(version: str, releases: dict) -> None:
         raise ValueError(f"hermes-gate {version!r} is not a published PyPI release")
 
 
-def _get(url: str, *, headers: dict[str, str]) -> tuple[int, bytes]:
+def _get(url: str, *, headers: dict[str, str], timeout: float = 30) -> tuple[int, bytes]:
     """GET `url`, returning (status, body). Raise ValueError on transport failure."""
     try:
-        with urlopen(Request(url, headers=headers), timeout=10) as response:
+        with urlopen(Request(url, headers=headers), timeout=timeout) as response:
             return response.status, response.read()
     except HTTPError as exc:
         return exc.code, exc.read()
@@ -177,26 +184,47 @@ def _get(url: str, *, headers: dict[str, str]) -> tuple[int, bytes]:
 
 
 def fetch_pypi_releases() -> dict:
-    """Return the `releases` mapping from PyPI's JSON API for hermes-gate."""
+    """Return the `releases` mapping from PyPI's JSON API for hermes-gate.
+
+    Never sends a GitHub token or any Authorization header -- PyPI's JSON API
+    is anonymous and unrelated to the GitHub contents lookup below.
+    """
     status, body = _get(PYPI_URL, headers={"Accept": "application/json"})
     if status != 200:
         raise ValueError(f"PyPI lookup for hermes-gate failed with HTTP {status} ({PYPI_URL})")
     return json.loads(body)["releases"]
 
 
+def _github_headers() -> dict[str, str]:
+    """Headers for the GitHub contents API, authenticated when possible.
+
+    A shared-IP hosted runner can hit GitHub's low unauthenticated rate limit
+    and get a 403/429 that would otherwise fail this guard closed on a
+    perfectly good release. `GITHUB_TOKEN` is provided by the publish
+    workflow's own `permissions: contents: read`; when present it is sent as
+    a bearer token, but the token is never required for this public repo and
+    is never attached to the unrelated PyPI request in `fetch_pypi_releases`.
+    """
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def tag_has_action_yml(version: str, *, fetch_status=None) -> bool:
     """Return whether tag v{version} of this repo contains action.yml at its root.
 
     Uses the public GitHub contents API rather than git, so this works without
-    changing `actions/checkout`'s default shallow, tagless clone and without a
-    token for this public repository. `fetch_status` is injectable for tests;
-    it takes a URL and returns an HTTP status code (raising ValueError on a
-    transport failure), matching the shape of the real network call below.
+    changing `actions/checkout`'s default shallow, tagless clone. `fetch_status`
+    is injectable for tests; it takes a URL and returns an HTTP status code
+    (raising ValueError on a transport failure), matching the shape of the
+    real network call below.
     """
     tag = f"v{version}"
     url = f"https://api.github.com/repos/{REPO_SLUG}/contents/action.yml?ref={tag}"
     if fetch_status is None:
-        status, _ = _get(url, headers={"Accept": "application/vnd.github+json"})
+        status, _ = _get(url, headers=_github_headers())
     else:
         status = fetch_status(url)
     if status == 200:
@@ -212,36 +240,24 @@ def evaluate(
     readme_version: str,
     release_tag: str,
     local_action_yml_exists: bool,
-    manifest_has_ref_fallback: bool = True,
     fetch_pypi_releases=fetch_pypi_releases,
     tag_has_action_yml=tag_has_action_yml,
 ) -> str:
     """Return a PASS message, or raise ValueError describing the failure.
 
     The README ref (`readme_version`) is the version this guard reasons about.
-    `default` is a *consistency* check when action.yml carries a literal one;
-    an empty/absent default (`None`) skips that comparison, but only when
-    `manifest_has_ref_fallback` proves action.yml actually derives the install
-    version from the ref instead -- an empty default with no such fallback
-    fails closed rather than being trusted blindly (see `manifest_has_ref_fallback`
-    docstring; irrelevant, and defaulted True, whenever `default` is truthy).
+    `default` is a *consistency* check only when action.yml carries a literal
+    one; an empty/absent default (`None`) skips that comparison entirely --
+    whether that is *safe* is asserted elsewhere, by action.yml's own tests
+    (see module docstring), not re-verified here.
 
     Pure decision logic, factored out of `main()` so tests can inject fake
     `fetch_pypi_releases`/`tag_has_action_yml` callables instead of touching
     the network or the real action.yml/README.md.
     """
-    if default:
-        if default != readme_version:
-            raise ValueError(
-                f"action.yml default {default!r} does not match README ref v{readme_version!r}"
-            )
-    elif not manifest_has_ref_fallback:
+    if default and default != readme_version:
         raise ValueError(
-            "action.yml has no literal 'version' default and no evidence "
-            "(github.action_ref) of deriving the install version from the Action "
-            "ref instead; a copied invocation without an explicit `with: version:` "
-            "would resolve to an empty pin (pip install hermes-gate==) -- keep a "
-            "literal default or wire up the ref-derived fallback before removing it"
+            f"action.yml default {default!r} does not match README ref v{readme_version!r}"
         )
 
     if release_tag == f"v{readme_version}":
@@ -284,7 +300,6 @@ def main() -> None:
         readme_version=readme_version,
         release_tag=release_tag,
         local_action_yml_exists=(ROOT / "action.yml").is_file(),
-        manifest_has_ref_fallback=manifest_has_ref_fallback(),
     )
     print(message)
 
