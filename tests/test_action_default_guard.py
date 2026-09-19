@@ -436,6 +436,46 @@ inputs:
     assert _input_default(manifest, "version") == "0.1.7#beta"
 
 
+def test_input_default_handles_doubled_single_quote_escape() -> None:
+    """YAML escapes an embedded `'` in a single-quoted scalar by doubling it;
+    a naive "next quote char ends the scalar" scan stops early instead."""
+    manifest = """\
+inputs:
+  version:
+    description: x
+    required: false
+    default: 'it''s 0.1.7'
+"""
+    assert _input_default(manifest, "version") == "it's 0.1.7"
+
+
+def test_input_default_handles_backslash_escaped_double_quote() -> None:
+    manifest = """\
+inputs:
+  version:
+    description: x
+    required: false
+    default: "say \\"0.1.7\\""
+"""
+    assert _input_default(manifest, "version") == 'say "0.1.7"'
+
+
+def test_input_default_handles_the_reviewer_reported_adversarial_case() -> None:
+    """`hermes-gate review` (correctness, major): a naive scan of
+    `'0.1.7'' # incompatible' # note` mistook the escaped `''` for the closing
+    quote and returned `0.1.7`, which matched a `v0.1.7` README ref even
+    though the real YAML value -- confirmed against PyYAML -- is
+    `0.1.7' # incompatible`, which must NOT match and must fail closed."""
+    manifest = """\
+inputs:
+  version:
+    description: x
+    required: false
+    default: '0.1.7'' # incompatible' # note
+"""
+    assert _input_default(manifest, "version") == "0.1.7' # incompatible"
+
+
 def test_read_action_default_matches_a_second_independent_read() -> None:
     """Cross-check `read_action_default()` against a second, independent
     extraction of the same `inputs.version.default` line -- not merely a type

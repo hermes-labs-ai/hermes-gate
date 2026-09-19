@@ -88,27 +88,62 @@ def _strip_inline_comment(value: str) -> str:
 
     A `#` only starts a comment outside of a quoted scalar: for an unquoted
     value, cut at the first " #" (a hash preceded by whitespace) and rstrip;
-    for a value that starts with a quote, the scalar ends at the matching
+    for a value that starts with a quote, the scalar ends at its matching
     closing quote and everything after that (including a `#`) is a comment --
     but a `#` *inside* the quotes is ordinary content, not a comment marker.
+
+    Both YAML quote forms escape an embedded quote by doubling/backslashing
+    it rather than ending the scalar there: `'it''s'` is the single string
+    `it's`, and `"say \\"hi\\""` is `say "hi"`. A naive "find the next quote
+    character" scan (hermes-gate review, correctness, major) mistook the
+    escape's first character for the terminator on input like
+    `'0.1.7'' # incompatible' # note` (a valid, if perverse, single-quoted
+    scalar whose real value is `0.1.7' # incompatible`), truncating early and
+    accepting a value the guard should have rejected. This scans past an
+    escaped quote instead of stopping at it.
     """
     value = value.strip()
     if not value:
         return value
-    quote = value[0] if value[0] in "\"'" else None
-    if quote:
-        closing = value.find(quote, 1)
-        if closing == -1:
-            return value  # Unterminated quote; treat the remainder as content.
-        return value[: closing + 1]
+    if value[0] == "'":
+        i = 1
+        while i < len(value):
+            if value[i] == "'":
+                if i + 1 < len(value) and value[i + 1] == "'":
+                    i += 2
+                    continue
+                return value[: i + 1]
+            i += 1
+        return value  # Unterminated quote; treat the remainder as content.
+    if value[0] == '"':
+        i = 1
+        while i < len(value):
+            if value[i] == "\\":
+                i += 2
+                continue
+            if value[i] == '"':
+                return value[: i + 1]
+            i += 1
+        return value  # Unterminated quote; treat the remainder as content.
     comment_at = value.find(" #")
     return value[:comment_at].rstrip() if comment_at != -1 else value
 
 
 def _unquote(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
-    return value
+    """Undo YAML quoting, including the two escape forms quoted scalars use.
+
+    Deliberately does not implement double-quoted YAML's full escape grammar
+    (`\\n`, `\\t`, `\\uXXXX`, ...): a version default that needed those would
+    not be a value this guard could sensibly compare against a SemVer-shaped
+    README ref, and this script stays stdlib-only and intentionally short of
+    a real YAML parser (see `_input_default`).
+    """
+    if len(value) < 2 or value[0] != value[-1] or value[0] not in "\"'":
+        return value
+    inner = value[1:-1]
+    if value[0] == "'":
+        return inner.replace("''", "'")
+    return inner.replace('\\"', '"')
 
 
 def _input_default(manifest: str, input_name: str) -> str | None:
