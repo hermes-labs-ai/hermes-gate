@@ -116,20 +116,26 @@ def _closing_quote_index(value: str) -> int | None:
     return None
 
 
+_UNQUOTED_COMMENT = re.compile(r"\s#")
+
+
 def _strip_inline_comment(value: str) -> str:
     """Return `value` with any trailing YAML comment removed.
 
     A `#` only starts a comment outside of a quoted scalar: for an unquoted
-    value, cut at the first " #" (a hash preceded by whitespace) and rstrip;
-    for a value that starts with a quote, the scalar ends at its matching
-    closing quote (see `_closing_quote_index`) and only whitespace-then-`#`
-    after that is a comment -- a `#` *inside* the quotes is ordinary content,
-    never a comment marker. Any other, non-comment content after the closing
-    quote is not valid YAML; rather than silently discard it (hermes-gate
-    review, correctness, major: `default: "0.1.7" trailing` returning the
-    quoted prefix would falsely accept a malformed manifest), this returns
-    the whole raw value unchanged so it fails the version comparison instead
-    of a false pass.
+    value, cut at the first whitespace-then-`#` (YAML's separator whitespace
+    is space or tab, not just a literal " #" -- hermes-gate review,
+    correctness, major, flagged the earlier literal-space-only check against
+    `default: 0.1.7\\t# current`) and rstrip; for a value that starts with a
+    quote, the scalar ends at its matching closing quote (see
+    `_closing_quote_index`) and only whitespace-then-`#` after that is a
+    comment -- a `#` *inside* the quotes is ordinary content, never a comment
+    marker. Any other, non-comment content after the closing quote is not
+    valid YAML; rather than silently discard it (hermes-gate review,
+    correctness, major: `default: "0.1.7" trailing` returning the quoted
+    prefix would falsely accept a malformed manifest), this returns the
+    whole raw value unchanged so it fails the version comparison instead of
+    a false pass.
     """
     value = value.strip()
     if not value:
@@ -143,8 +149,8 @@ def _strip_inline_comment(value: str) -> str:
         if trimmed and not (remainder[:1].isspace() and trimmed.startswith("#")):
             return value
         return value[: closing + 1]
-    comment_at = value.find(" #")
-    return value[:comment_at].rstrip() if comment_at != -1 else value
+    match = _UNQUOTED_COMMENT.search(value)
+    return value[: match.start()].rstrip() if match else value
 
 
 def _unquote(value: str) -> str:

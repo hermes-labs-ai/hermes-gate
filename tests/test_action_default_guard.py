@@ -400,6 +400,13 @@ inputs:
     assert _input_default(manifest, "version") == "0.1.7"
 
 
+def test_input_default_strips_tab_separated_unquoted_comment() -> None:
+    """hermes-gate review (correctness, major): YAML's separator whitespace
+    before a comment is space OR tab, not only a literal " #"."""
+    manifest = "inputs:\n  version:\n    description: x\n    required: false\n    default: 0.1.7\t# current\n"
+    assert _input_default(manifest, "version") == "0.1.7"
+
+
 def test_input_default_strips_comment_after_quoted_empty_string() -> None:
     """`default: "" # note` must read as empty (None), not the truthy literal
     string '"" # note', which would silently bypass the empty-default path."""
