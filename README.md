@@ -5,9 +5,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/hermes-gate)](https://pypi.org/project/hermes-gate/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2ea44f)](LICENSE)
 
-HermesGate turns “run the checks again” into a bounded completion ceremony. It
-runs the repository's own commands, records exactly which content and tool
-versions were checked, and reuses a PASS only while those bytes still match.
+HermesGate runs a repository's own checks as a bounded completion ceremony, records exactly which content and tool versions were checked, and reuses a PASS only while those bytes still match.
+
+HermesGate is developed by [Hermes Labs](https://hermes-labs.ai).
+
+Hermes Labs studies failure modes in agent and LLM systems, develops open-source tools that treat language as part of the runtime, and works with teams to remediate reliability failures in production.
 
 It has no daemon and no runtime dependencies beyond Python 3.11+ and Git.
 Lifecycle hooks inspect receipts; they do not repair code, invoke a model, or
