@@ -372,6 +372,8 @@ def _workflow(root: Path) -> str:
             "",
             "on:",
             "  pull_request:",
+            "  push:",
+            "    branches: [main]",
             "  workflow_dispatch:",
             "",
             "permissions:",

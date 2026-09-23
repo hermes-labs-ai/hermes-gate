@@ -407,6 +407,12 @@ def test_input_default_strips_tab_separated_unquoted_comment() -> None:
     assert _input_default(manifest, "version") == "0.1.7"
 
 
+@pytest.mark.parametrize("default", ["default: # derived from ref", "default:   # derived from ref"])
+def test_input_default_comment_only_is_none(default: str) -> None:
+    manifest = f"inputs:\n  version:\n    description: x\n    required: false\n    {default}\n"
+    assert _input_default(manifest, "version") is None
+
+
 def test_input_default_strips_comment_after_quoted_empty_string() -> None:
     """`default: "" # note` must read as empty (None), not the truthy literal
     string '"" # note', which would silently bypass the empty-default path."""
