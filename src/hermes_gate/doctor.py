@@ -60,6 +60,9 @@ def _provider_report(spec: ReviewSpec, root: Path | None) -> dict[str, Any]:
         if installer_copy.is_file():
             report["detail"] = f"{installer_copy} exists but is not on PATH"
         return report
+    if spec.provider == "jsonl":
+        report["status"] = "AVAILABLE"
+        return report
     execution = run_argv(
         [binary, "auth", "status", "--agent"],
         cwd=root or Path.cwd(),

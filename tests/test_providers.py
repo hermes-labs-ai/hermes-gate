@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hermes_gate.providers import normalize_coderabbit_output
+from hermes_gate.providers import normalize_coderabbit_output, normalize_jsonl_output
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -98,3 +98,34 @@ def test_actual_cli_parameterization_finding_is_material_security() -> None:
     assert result.status == "FAIL"
     assert result.findings[0].category == "security"
     assert result.findings[0].path == "storage.py"
+
+
+def test_jsonl_review_requires_exact_scope_and_accounts_for_findings() -> None:
+    events = "\n".join(
+        json.dumps(item)
+        for item in (
+            {"type": "finding", "severity": "major", "category": "correctness",
+             "path": "src/store.py", "line": 12, "message": "duplicate stored twice"},
+            {"type": "finding", "severity": "minor", "category": "style",
+             "path": "src/store.py", "message": "rename local"},
+            {"type": "complete", "digest": "exact", "reviewed_paths": ["src/store.py"]},
+        )
+    )
+    result = normalize_jsonl_output(events, digest="exact", reviewed_paths=["src/store.py"])
+    assert result.status == "FAIL"
+    assert result.suppressed_count == 1
+    assert result.findings[0].message == "duplicate stored twice"
+    assert normalize_jsonl_output(events, digest="stale", reviewed_paths=["src/store.py"]).status == "REVIEW_UNAVAILABLE"
+    assert normalize_jsonl_output(events, digest="exact", reviewed_paths=["other.py"]).status == "REVIEW_UNAVAILABLE"
+
+
+def test_jsonl_review_rejects_malformed_or_unscoped_claims() -> None:
+    complete = json.dumps({"type": "complete", "digest": "exact", "reviewed_paths": ["src/store.py"]})
+    for payload in (
+        "not json\n" + complete,
+        json.dumps({"type": "finding", "severity": "major", "category": "correctness",
+                    "path": "other.py", "message": "outside scope"}) + "\n" + complete,
+        complete + "\n" + complete,
+        json.dumps({"type": "error", "message": "review failed"}) + "\n" + complete,
+    ):
+        assert normalize_jsonl_output(payload, digest="exact", reviewed_paths=["src/store.py"]).status == "REVIEW_UNAVAILABLE"

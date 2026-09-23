@@ -25,7 +25,7 @@ from .gitstate import (
     staged_paths,
 )
 from .init_repo import is_adopted
-from .providers import normalize_coderabbit_output
+from .providers import NormalizedReview, normalize_coderabbit_output, normalize_jsonl_output
 from .receipts import read_receipt, valid_receipt, write_receipt
 from .repo_runner import run as run_repository
 from .status import Status
@@ -206,12 +206,13 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             reason="matching fast PASS required; run hermes-gate fast",
         )
     cached = valid_receipt(root, "review", digest)
-    if cached:
+    if cached and _review_provider_matches(cached, config.review.provider):
         return result("review", Status.PASS, started, receipt=cached, cached=True)
     budget_path = _state_file(root, "review-budget.json")
     budget = _read_json(budget_path)
     attempts_by_digest = _review_attempts_by_digest(budget)
-    if attempts_by_digest.get(digest, 0) >= 2:
+    attempt_key = digest if config.review.provider == "coderabbit" else f"{config.review.provider}:{digest}"
+    if attempts_by_digest.get(attempt_key, 0) >= 2:
         return result(
             "review",
             Status.PARKED,
@@ -221,10 +222,32 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
 
     provider_version = _tool_version(config.review.argv[0], root)
     provider_argv = _provider_review_argv(config, root, base=scope_base)
-    execution = run_argv(provider_argv, cwd=root, timeout_seconds=config.review.timeout_seconds)
-    if execution.returncode not in {0, None}:
+    provider_env = None
+    if config.review.provider == "jsonl":
+        provider_env = {
+            "HERMES_GATE_DIFF_DIGEST": digest,
+            "HERMES_GATE_REVIEWED_PATHS": json.dumps(selected),
+            "HERMES_GATE_SCOPE_BASE": scope_base,
+        }
+    execution = run_argv(
+        provider_argv,
+        cwd=root,
+        timeout_seconds=config.review.timeout_seconds,
+        env=provider_env,
+    )
+    if execution.output_truncated:
+        normalized = normalize_jsonl_output("", digest=digest, reviewed_paths=selected)
+    elif execution.returncode not in {0, None}:
         normalized = normalize_coderabbit_output(
             {"type": "error", "message": f"provider exited {execution.returncode}"},
+            material_severities=config.review.material_severities,
+            material_categories=config.review.material_categories,
+        )
+    elif config.review.provider == "jsonl":
+        normalized = normalize_jsonl_output(
+            execution.stdout,
+            digest=digest,
+            reviewed_paths=selected,
             material_severities=config.review.material_severities,
             material_categories=config.review.material_categories,
         )
@@ -243,21 +266,30 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         or execution.timed_out
         or normalized.status is Status.REVIEW_UNAVAILABLE
     ):
-        fallback_argv = config.review.fallback_argv
-        if (
-            not fallback_argv
-            and shutil.which("hermes-pr-review")
-            and not changed_paths(root)
-            and _automatic_fallback_base(root, scope_base) is not None
-        ):
-            fallback_argv = ("hermes-pr-review",)
-        fallback_attempted = bool(fallback_argv)
-        fallback_provider = fallback_argv[0] if fallback_argv else ""
-        fallback = _fallback_review(config, root, digest, base=scope_base)
-        if fallback is not None:
-            execution, normalized, provider, provider_version = fallback
-        elif fallback_attempted:
-            fallback_reason = "fallback provider returned no usable review result"
+        if config.review.provider == "coderabbit":
+            fallback_argv = config.review.fallback_argv
+            if (
+                not fallback_argv
+                and shutil.which("hermes-pr-review")
+                and not changed_paths(root)
+                and _automatic_fallback_base(root, scope_base) is not None
+            ):
+                fallback_argv = ("hermes-pr-review",)
+            fallback_attempted = bool(fallback_argv)
+            fallback_provider = fallback_argv[0] if fallback_argv else ""
+            fallback = _fallback_review(config, root, digest, base=scope_base)
+            if fallback is not None:
+                execution, normalized, provider, provider_version = fallback
+            elif fallback_attempted:
+                fallback_reason = "fallback provider returned no usable review result"
+    if config.review.provider == "jsonl":
+        post_digest, failure = _digest_or_error(root, selected, "review", started, base=scope_base)
+        if failure:
+            return failure
+        if post_digest != digest:
+            normalized = NormalizedReview(
+                Status.REVIEW_UNAVAILABLE, (), 0, "reviewer changed the scoped files"
+            )
     status = normalized.status
     findings = [asdict(item) for item in normalized.findings]
     reason = normalized.reason
@@ -266,7 +298,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
     # budget is keyed by the exact current digest so stale prior diffs cannot
     # park a changed review.
     if status is not Status.REVIEW_UNAVAILABLE:
-        attempts_by_digest[digest] = attempts_by_digest.get(digest, 0) + 1
+        attempts_by_digest[attempt_key] = attempts_by_digest.get(attempt_key, 0) + 1
         _write_json(budget_path, {"attempts_by_digest": attempts_by_digest})
     receipt = write_receipt(
         root,
@@ -279,6 +311,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         checks=[_execution_dict(execution, provider)],
         extra={
             "provider": provider,
+            "configured_provider": config.review.provider,
             "suppressed_count": normalized.suppressed_count,
             "reviewed_paths": selected,
             "scope_base": scope_base,
@@ -334,7 +367,8 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
             requirements.append("full")
     missing: list[str] = []
     for kind in requirements:
-        if valid_receipt(root, kind, digest):
+        receipt = valid_receipt(root, kind, digest)
+        if receipt and (kind != "review" or _review_provider_matches(receipt, config.review.provider)):
             continue
         if action == "commit" and _receipt_covers(root, kind, raw_selected):
             continue
@@ -350,6 +384,16 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
             missing=missing,
         )
     return result("boundary", Status.PASS, started, required=requirements)
+
+
+def _review_provider_matches(receipt: dict[str, Any], configured_provider: str) -> bool:
+    recorded = receipt.get("configured_provider")
+    if isinstance(recorded, str):
+        return recorded == configured_provider
+    actual = receipt.get("provider")
+    return actual == configured_provider or (
+        configured_provider == "coderabbit" and actual == "hermes-pr-review"
+    )
 
 
 def _receipt_covers(root: Path, kind: str, selected: list[str]) -> bool:

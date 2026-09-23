@@ -20,9 +20,9 @@ timeout_seconds = 4.0
 blocking_threshold = "MEDIUM"
 
 [review]
-provider = "coderabbit"
-argv = ["coderabbit", "review", "--agent", "--base", "main"]
-timeout_seconds = 180.0
+provider = "jsonl"
+argv = ["hermes-gate-claude-review"]
+timeout_seconds = 600.0
 material_severities = ["critical", "major"]
 material_categories = ["correctness", "security", "data-loss", "concurrency", "api-contract"]
 fallback_argv = []

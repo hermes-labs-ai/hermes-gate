@@ -15,7 +15,7 @@ class ConfigError(ValueError):
 # parse; `review.argv[0]` names the executable and may differ. A name the engine
 # has no contract for would run its argv verbatim and could only ever produce an
 # unavailable or wrong review, so it is a profile error rather than a runtime one.
-SUPPORTED_REVIEW_PROVIDERS: tuple[str, ...] = ("coderabbit",)
+SUPPORTED_REVIEW_PROVIDERS: tuple[str, ...] = ("coderabbit", "jsonl")
 
 
 @dataclass(frozen=True)

@@ -108,6 +108,57 @@ def normalize_coderabbit_output(
     )
 
 
+def normalize_jsonl_output(
+    payload: str,
+    *,
+    digest: str,
+    reviewed_paths: list[str],
+    material_severities: Iterable[str] = MATERIAL_SEVERITIES,
+    material_categories: Iterable[str] = MATERIAL_CATEGORIES,
+) -> NormalizedReview:
+    """Parse a bounded reviewer stream with an explicit exact-diff completion claim."""
+    try:
+        events = [json.loads(line) for line in payload.splitlines() if line.strip()]
+    except json.JSONDecodeError:
+        return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "invalid JSONL review output")
+    if not events or any(not isinstance(event, dict) for event in events):
+        return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "invalid JSONL review events")
+    completions = [event for event in events if event.get("type") == "complete"]
+    if len(completions) != 1 or events[-1] is not completions[0]:
+        return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "one final completion required")
+    completion = completions[0]
+    if completion.get("digest") != digest or completion.get("reviewed_paths") != reviewed_paths:
+        return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "review scope does not match current diff")
+    severities = set(material_severities)
+    categories = set(material_categories)
+    findings: list[Finding] = []
+    suppressed = 0
+    for event in events[:-1]:
+        if event.get("type") == "error":
+            return NormalizedReview(
+                Status.REVIEW_UNAVAILABLE, (), 0, str(event.get("message") or "provider error")
+            )
+        if event.get("type") != "finding":
+            return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "unknown review event")
+        severity, category = event.get("severity"), event.get("category")
+        path, message, line = event.get("path"), event.get("message"), event.get("line")
+        if (
+            not isinstance(severity, str)
+            or not isinstance(category, str)
+            or not isinstance(path, str)
+            or path not in reviewed_paths
+            or not isinstance(message, str)
+            or not message.strip()
+            or (line is not None and (not isinstance(line, int) or isinstance(line, bool) or line < 1))
+        ):
+            return NormalizedReview(Status.REVIEW_UNAVAILABLE, (), 0, "invalid or unscoped finding")
+        if severity.lower() in severities and category.lower() in categories:
+            findings.append(Finding(severity.lower(), category.lower(), path, line, message))
+        else:
+            suppressed += 1
+    return NormalizedReview(Status.FAIL if findings else Status.PASS, tuple(findings), suppressed)
+
+
 def _category(event: dict[str, Any], message: str) -> str:
     raw = str(event.get("category") or event.get("typeName") or "").lower().replace("_", "-")
     if raw in MATERIAL_CATEGORIES:
