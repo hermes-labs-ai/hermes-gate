@@ -47,6 +47,7 @@ test = ["pytest==9.1.1", "ruff==0.16.7", "build==1.6.1", "PyYAML==6.0.2"]
 
 [project.scripts]
 hermes-gate = "hermes_gate.cli:main"
+hermes-gate-claude-review = "hermes_gate.claude_review:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

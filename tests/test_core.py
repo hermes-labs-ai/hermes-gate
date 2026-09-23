@@ -15,6 +15,7 @@ from hermes_gate.config import ConfigError, load_config
 from hermes_gate.engine import (
     _fallback_review,
     _provider_review_argv,
+    _review_provider_matches,
     _state_file,
     _tool_version,
     boundary,
@@ -775,6 +776,109 @@ def test_boundary_rejects_invalid_profile_for_non_code_commit(repo: Path) -> Non
 
     assert outcome["status"] == "ERROR"
     assert outcome["reason"].startswith("invalid profile:")
+def test_jsonl_provider_passes_exact_diff_and_writes_receipt(repo: Path) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    code = (
+        "import json, os; "
+        "print(json.dumps({'type':'complete', 'digest':os.environ['HERMES_GATE_DIFF_DIGEST'], "
+        "'reviewed_paths':json.loads(os.environ['HERMES_GATE_REVIEWED_PATHS'])}))"
+    )
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "jsonl"')
+        .replace('argv = ["coderabbit", "review", "--agent"]',
+                 f"argv = {json.dumps([sys.executable, '-c', code])}"),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    result = review(repo)
+    assert result["status"] == "PASS"
+    assert result["receipt"]["provider"] == "jsonl"
+    assert result["receipt"]["diff_sha256"] == diff_digest(repo)
+
+
+def test_jsonl_timeout_with_complete_stdout_is_unavailable(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "jsonl"'),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+
+    def timed_out(argv: tuple[str, ...], **kwargs: object) -> Execution:
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        complete = json.dumps(
+            {"type": "complete", "digest": env["HERMES_GATE_DIFF_DIGEST"],
+             "reviewed_paths": json.loads(env["HERMES_GATE_REVIEWED_PATHS"])}
+        )
+        return Execution(argv, None, 1, complete, "", timed_out=True)
+
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", timed_out)
+    outcome = review(repo)
+    assert outcome["status"] == "REVIEW_UNAVAILABLE"
+    assert outcome["receipt"]["status"] == "REVIEW_UNAVAILABLE"
+
+
+def test_review_cannot_reuse_pass_from_another_provider(repo: Path) -> None:
+    write_profile(repo)
+    source = repo / "source.py"
+    source.write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "jsonl"')
+        .replace('argv = ["coderabbit", "review", "--agent"]', 'argv = ["missing-wrapper"]'),
+        encoding="utf-8",
+    )
+    assert fast(repo)["status"] == "PASS"
+    digest = diff_digest(repo)
+    from hermes_gate.receipts import write_receipt
+
+    write_receipt(repo, "review", status="PASS", digest=digest, elapsed_ms=1,
+                  extra={"provider": "coderabbit"})
+    assert boundary(repo, "push")["status"] == "FAIL"
+    assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
+
+
+def test_jsonl_provider_has_own_review_attempt_budget(repo: Path) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    code = (
+        "import json, os; "
+        "print(json.dumps({'type':'complete', 'digest':os.environ['HERMES_GATE_DIFF_DIGEST'], "
+        "'reviewed_paths':json.loads(os.environ['HERMES_GATE_REVIEWED_PATHS'])}))"
+    )
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "jsonl"')
+        .replace('argv = ["coderabbit", "review", "--agent"]',
+                 f"argv = {json.dumps([sys.executable, '-c', code])}"),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    digest = diff_digest(repo)
+    _state_file(repo, "review-budget.json").write_text(
+        json.dumps({"attempts_by_digest": {digest: 2}}), encoding="utf-8"
+    )
+    assert review(repo)["status"] == "PASS"
+
+
+def test_legacy_coderabbit_fallback_receipt_keeps_valid_provider_identity() -> None:
+    fallback = {"provider": "hermes-pr-review"}
+    assert _review_provider_matches(fallback, "coderabbit")
+    assert not _review_provider_matches(fallback, "jsonl")
+    assert _review_provider_matches({**fallback, "configured_provider": "coderabbit"}, "coderabbit")
 
 
 def test_review_unavailable_does_not_consume_semantic_attempt(

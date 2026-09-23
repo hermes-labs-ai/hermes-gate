@@ -188,19 +188,52 @@ unreviewed installation.
 
 ## Review and hooks
 
-`review` requires an exact fast PASS. CodeRabbit agent-mode JSONL is the initial
-provider boundary. If it is unavailable, a clean committed diff may use an
-installed `hermes-pr-review` fallback. Unparseable, unauthenticated, timed-out,
-or unavailable review output is never relabeled PASS.
+`review` requires an exact fast PASS. The `coderabbit` provider accepts
+CodeRabbit agent-mode JSONL. If it is unavailable, a clean committed diff may
+use an installed `hermes-pr-review` fallback. The `jsonl` provider accepts a
+local reviewer command with an explicit exact-diff completion claim. Unparseable,
+timed-out, or unavailable review output is never relabeled PASS.
 
-`review.provider` names that output contract and must be `coderabbit`;
+`review.provider` names that output contract and must be `coderabbit` or `jsonl`;
 `review.argv[0]` names the executable and may differ (for example a wrapper or
 the `cr` alias). Any other provider name is a profile error: `fast`, `review`,
 `full`, `repair`, and `boundary` all return `ERROR` with
 `invalid profile: review.provider …`, and `doctor` reports `profile.status:
 ERROR`, because a command the engine cannot bind to the diff or parse can only
 ever produce an unavailable or wrong review. `doctor` probes the executable the
-profile names, resolved the same way `review` launches it.
+profile names, resolved the same way `review` launches it. For `jsonl`, doctor
+reports executable availability and does not call a provider-specific auth command.
+
+For a local reviewer, configure the profile as follows:
+
+```toml
+[review]
+provider = "jsonl"
+argv = ["hermes-gate-claude-review"]
+timeout_seconds = 180.0
+material_severities = ["critical", "major"]
+material_categories = ["correctness", "security", "data-loss", "concurrency", "api-contract"]
+fallback_argv = []
+```
+
+Gate runs the argv in the repository root with `HERMES_GATE_DIFF_DIGEST` set to
+the current content digest and `HERMES_GATE_REVIEWED_PATHS` set to a JSON array
+of selected paths. The command must exit zero and print one JSON object per line.
+`hermes-gate-claude-review` is the optional bundled adapter for a subscription-backed
+Claude Code login. It assembles only the selected local Git diff (including
+untracked files), caps it at 128 KiB, disables Claude's tools, and rejects a
+missing subscription login or invalid model output. It performs no installation
+or authentication itself. Other trusted commands may implement the same contract.
+Optional finding events use `type`, `severity`, `category`, `path`, optional
+positive `line`, and nonempty `message`. The final event must be
+`{"type":"complete","digest":"<exact environment digest>","reviewed_paths":["<exact selected paths>"]}`.
+Gate rejects unknown events, malformed or out-of-scope findings, missing or
+mismatched completion, truncated output, and changes to scoped files during the
+review. Material findings make the receipt FAIL. Other findings are counted as
+suppressed. A PASS receipt records that this command claimed completion against
+the exact digest and produced no material findings; it does not prove the command
+examined every line, that its judgment was correct, or that unscoped files stayed
+unchanged. Use a trusted, bounded reviewer command, and inspect its receipt.
 
 `install-codex` and `uninstall-codex` are intentionally hidden integration
 commands. Codex integration preserves unrelated hook and instruction content.
