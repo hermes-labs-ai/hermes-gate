@@ -235,9 +235,11 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         timeout_seconds=config.review.timeout_seconds,
         env=provider_env,
     )
-    if execution.output_truncated:
-        normalized = normalize_jsonl_output("", digest=digest, reviewed_paths=selected)
-    elif execution.returncode not in {0, None}:
+    if execution.unavailable or execution.timed_out or execution.output_truncated:
+        normalized = NormalizedReview(
+            Status.REVIEW_UNAVAILABLE, (), 0, "provider unavailable, timed out, or truncated"
+        )
+    elif execution.returncode != 0:
         normalized = normalize_coderabbit_output(
             {"type": "error", "message": f"provider exited {execution.returncode}"},
             material_severities=config.review.material_severities,
@@ -261,27 +263,26 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
     fallback_attempted = False
     fallback_provider = ""
     fallback_reason = ""
-    if (
+    if config.review.provider == "coderabbit" and (
         execution.unavailable
         or execution.timed_out
         or normalized.status is Status.REVIEW_UNAVAILABLE
     ):
-        if config.review.provider == "coderabbit":
-            fallback_argv = config.review.fallback_argv
-            if (
-                not fallback_argv
-                and shutil.which("hermes-pr-review")
-                and not changed_paths(root)
-                and _automatic_fallback_base(root, scope_base) is not None
-            ):
-                fallback_argv = ("hermes-pr-review",)
-            fallback_attempted = bool(fallback_argv)
-            fallback_provider = fallback_argv[0] if fallback_argv else ""
-            fallback = _fallback_review(config, root, digest, base=scope_base)
-            if fallback is not None:
-                execution, normalized, provider, provider_version = fallback
-            elif fallback_attempted:
-                fallback_reason = "fallback provider returned no usable review result"
+        fallback_argv = config.review.fallback_argv
+        if (
+            not fallback_argv
+            and shutil.which("hermes-pr-review")
+            and not changed_paths(root)
+            and _automatic_fallback_base(root, scope_base) is not None
+        ):
+            fallback_argv = ("hermes-pr-review",)
+        fallback_attempted = bool(fallback_argv)
+        fallback_provider = fallback_argv[0] if fallback_argv else ""
+        fallback = _fallback_review(config, root, digest, base=scope_base)
+        if fallback is not None:
+            execution, normalized, provider, provider_version = fallback
+        elif fallback_attempted:
+            fallback_reason = "fallback provider returned no usable review result"
     if config.review.provider == "jsonl":
         post_digest, failure = _digest_or_error(root, selected, "review", started, base=scope_base)
         if failure:

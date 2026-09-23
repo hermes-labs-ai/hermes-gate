@@ -55,7 +55,9 @@ def _fixture_diff(path: Path) -> str:
 
 
 def _review(diff: str, paths: list[str]) -> list[dict[str, object]]:
-    auth = subprocess.run(["claude", "auth", "status"], capture_output=True, text=True, timeout=5)
+    auth = subprocess.run(
+        ["claude", "auth", "status"], capture_output=True, text=True, timeout=5, check=False
+    )
     try:
         auth_info = json.loads(auth.stdout)
     except json.JSONDecodeError as exc:
@@ -86,6 +88,7 @@ def _review(diff: str, paths: list[str]) -> list[dict[str, object]]:
         text=True,
         timeout=540,
         env=env,
+        check=False,
     )
     if run.returncode:
         raise ValueError(f"Claude reviewer exited {run.returncode}")
@@ -98,7 +101,7 @@ def _review(diff: str, paths: list[str]) -> list[dict[str, object]]:
     except (json.JSONDecodeError, KeyError, TypeError) as exc:
         raise ValueError("Claude returned an invalid review object") from exc
     if not isinstance(findings, list):
-        raise ValueError("Claude findings must be an array")
+        raise TypeError("Claude findings must be an array")
     for finding in findings:
         if not isinstance(finding, dict) or finding.get("path") not in paths:
             raise ValueError("Claude finding is outside selected paths")
@@ -138,7 +141,7 @@ def main() -> int:
     except subprocess.TimeoutExpired:
         print("review unavailable: Claude reviewer timed out", file=sys.stderr)
         return 1
-    except (OSError, KeyError, ValueError) as exc:
+    except (OSError, KeyError, TypeError, ValueError) as exc:
         print(f"review unavailable: {exc}", file=sys.stderr)
         return 1
 

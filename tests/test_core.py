@@ -799,6 +799,35 @@ def test_jsonl_provider_passes_exact_diff_and_writes_receipt(repo: Path) -> None
     assert result["receipt"]["diff_sha256"] == diff_digest(repo)
 
 
+def test_jsonl_timeout_with_complete_stdout_is_unavailable(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    profile_path = repo / ".hermes" / "gate.toml"
+    profile_path.write_text(
+        profile_path.read_text(encoding="utf-8")
+        .replace('provider = "coderabbit"', 'provider = "jsonl"'),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+
+    def timed_out(argv: tuple[str, ...], **kwargs: object) -> Execution:
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        complete = json.dumps(
+            {"type": "complete", "digest": env["HERMES_GATE_DIFF_DIGEST"],
+             "reviewed_paths": json.loads(env["HERMES_GATE_REVIEWED_PATHS"])}
+        )
+        return Execution(argv, None, 1, complete, "", timed_out=True)
+
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", timed_out)
+    outcome = review(repo)
+    assert outcome["status"] == "REVIEW_UNAVAILABLE"
+    assert outcome["receipt"]["status"] == "REVIEW_UNAVAILABLE"
+
+
 def test_review_cannot_reuse_pass_from_another_provider(repo: Path) -> None:
     write_profile(repo)
     source = repo / "source.py"
