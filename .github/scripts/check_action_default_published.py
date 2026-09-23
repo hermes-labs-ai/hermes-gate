@@ -116,7 +116,7 @@ def _closing_quote_index(value: str) -> int | None:
     return None
 
 
-_UNQUOTED_COMMENT = re.compile(r"\s#")
+_UNQUOTED_COMMENT = re.compile(r"(?:^|\s)#")
 
 
 def _strip_inline_comment(value: str) -> str:

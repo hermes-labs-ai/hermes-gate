@@ -455,6 +455,7 @@ def test_generated_workflow_reviews_the_pull_request_range(tmp_path: Path) -> No
     assert "HERMES_GATE_BASE: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "hermes_gate_runner.py full --all" in workflow
     assert "if: github.event_name == 'pull_request'" in workflow
+    assert "  push:\n    branches: [main]\n" in workflow
 
 
 def test_generated_workflow_checkout_does_not_persist_credentials(tmp_path: Path) -> None:
