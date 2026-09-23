@@ -12,7 +12,9 @@ fixture strings instead.
 """
 
 import runpy
+from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -238,6 +240,117 @@ def test_fetch_pypi_releases_fails_closed_on_non_200() -> None:
         fetch_pypi_releases.__globals__["_get"] = original_get
 
 
+def test_get_retries_transient_http_status_then_succeeds() -> None:
+    get = fetch_pypi_releases.__globals__["_get"]
+    calls = []
+    delays = []
+
+    class Response:
+        def __init__(self, status: int, body: bytes):
+            self.status = status
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return self.body
+
+    responses = [Response(503, b"retry"), Response(200, b"ok")]
+    original_urlopen = get.__globals__["urlopen"]
+    get.__globals__["urlopen"] = lambda *_args, **_kwargs: (calls.append(1), responses.pop(0))[1]
+    try:
+        status, body = get("https://example.test", headers={}, sleep=delays.append)
+    finally:
+        get.__globals__["urlopen"] = original_urlopen
+    assert (status, body) == (200, b"ok")
+    assert len(calls) == 2
+    assert delays == [1.0]
+
+
+def test_get_retries_http_error_response_then_succeeds() -> None:
+    get = fetch_pypi_releases.__globals__["_get"]
+    calls = []
+
+    class Response:
+        status = 200
+
+        @property
+        def headers(self):
+            return {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def transient_then_ok(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise HTTPError("https://example.test", 503, "unavailable", {}, BytesIO(b"retry"))
+        return Response()
+
+    original_urlopen = get.__globals__["urlopen"]
+    get.__globals__["urlopen"] = transient_then_ok
+    try:
+        assert get("https://example.test", headers={}, sleep=lambda _delay: None) == (200, b"ok")
+    finally:
+        get.__globals__["urlopen"] = original_urlopen
+    assert len(calls) == 2
+
+
+def test_get_retries_transient_transport_then_fails_closed_on_exhaustion() -> None:
+    get = fetch_pypi_releases.__globals__["_get"]
+    calls = []
+    delays = []
+
+    def unavailable(*_args, **_kwargs):
+        calls.append(1)
+        raise URLError("temporarily unavailable")
+
+    original_urlopen = get.__globals__["urlopen"]
+    get.__globals__["urlopen"] = unavailable
+    try:
+        with pytest.raises(ValueError, match="after 3 attempts"):
+            get("https://example.test", headers={}, sleep=delays.append)
+    finally:
+        get.__globals__["urlopen"] = original_urlopen
+    assert len(calls) == 3
+    assert delays == [1.0, 2.0]
+
+
+def test_get_does_not_retry_permanent_http_status() -> None:
+    get = fetch_pypi_releases.__globals__["_get"]
+    calls = []
+
+    class Response:
+        status = 404
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"missing"
+
+    original_urlopen = get.__globals__["urlopen"]
+    get.__globals__["urlopen"] = lambda *_args, **_kwargs: (calls.append(1), Response())[1]
+    try:
+        assert get("https://example.test", headers={}, sleep=lambda _delay: None) == (404, b"missing")
+    finally:
+        get.__globals__["urlopen"] = original_urlopen
+    assert len(calls) == 1
+
+
 # --- Defect 3: GitHub contents auth, and its strict isolation from PyPI ---
 
 
@@ -376,6 +489,12 @@ def test_input_default_empty_string_is_none() -> None:
     assert _input_default(_MANIFEST_EMPTY_DEFAULT, "version") is None
 
 
+def test_input_default_rejects_non_string_yaml_values() -> None:
+    manifest = "inputs:\n  version:\n    default: 0.1\n"
+    with pytest.raises(TypeError, match=r"inputs\.version\.default.*float 0\.1"):
+        _input_default(manifest, "version")
+
+
 def test_input_default_missing_key_is_none() -> None:
     assert _input_default(_MANIFEST_NO_DEFAULT_KEY, "version") is None
 
@@ -401,10 +520,10 @@ inputs:
 
 
 def test_input_default_strips_tab_separated_unquoted_comment() -> None:
-    """hermes-gate review (correctness, major): YAML's separator whitespace
-    before a comment is space OR tab, not only a literal " #"."""
+    """A tab in a plain YAML scalar is invalid, so the guard must fail closed."""
     manifest = "inputs:\n  version:\n    description: x\n    required: false\n    default: 0.1.7\t# current\n"
-    assert _input_default(manifest, "version") == "0.1.7"
+    with pytest.raises(ValueError, match="not valid YAML"):
+        _input_default(manifest, "version")
 
 
 @pytest.mark.parametrize("default", ["default: # derived from ref", "default:   # derived from ref"])
@@ -490,10 +609,7 @@ inputs:
 
 
 def test_input_default_rejects_non_comment_trailing_content() -> None:
-    """`hermes-gate review` (correctness, major): `"0.1.7" trailing` is not
-    valid YAML (only whitespace-then-`#` may follow a quoted scalar). Silently
-    discarding the trailing token would falsely accept it as `0.1.7`; instead
-    the raw value must survive unchanged so it fails the version comparison."""
+    """Malformed YAML must fail closed rather than accept a parsed prefix."""
     manifest = """\
 inputs:
   version:
@@ -501,7 +617,8 @@ inputs:
     required: false
     default: "0.1.7" trailing
 """
-    assert _input_default(manifest, "version") == '"0.1.7" trailing'
+    with pytest.raises(ValueError, match="not valid YAML"):
+        _input_default(manifest, "version")
 
 
 def test_input_default_allows_trailing_whitespace_with_no_comment() -> None:
