@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Bounded, read-only Claude Code adapter for HermesGate's jsonl review contract."""
+"""Bounded Claude Code adapter for HermesGate's jsonl review console command."""
 
 from __future__ import annotations
 
@@ -8,6 +7,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+from .gitstate import changed_paths, head, scope
 
 MAX_DIFF_BYTES = 128 * 1024
 VERSION = "claude-jsonl-review 0.1"
@@ -18,19 +19,12 @@ def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
 
 
 def _selected_diff(paths: list[str]) -> str:
-    dirty = _git("status", "--porcelain", "--untracked-files=all")
-    if dirty.returncode:
-        raise ValueError("cannot inspect Git status")
-    if dirty.stdout:
-        patch = _git("diff", "--no-ext-diff", "--binary", "HEAD", "--", *paths)
+    root = Path.cwd()
+    base = os.environ.get("HERMES_GATE_SCOPE_BASE") or scope(root)[1]
+    if base == head(root) and not changed_paths(root):
+        patch = _git("show", "--format=", "--root", "--binary", "HEAD", "--", *paths)
     else:
-        upstream = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
-        base = _git("merge-base", "HEAD", upstream.stdout.decode().strip()) if not upstream.returncode else None
-        if base is None or base.returncode:
-            base = _git("rev-parse", "HEAD^")
-        if base.returncode:
-            raise ValueError("cannot identify committed diff base")
-        patch = _git("diff", "--no-ext-diff", "--binary", base.stdout.decode().strip(), "HEAD", "--", *paths)
+        patch = _git("diff", "--no-ext-diff", "--binary", base, "--", *paths)
     if patch.returncode:
         raise ValueError("cannot read selected Git diff")
     sections = [patch.stdout.decode("utf-8", "replace")]
