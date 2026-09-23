@@ -50,8 +50,8 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -85,7 +85,7 @@ def _input_default(manifest: str, input_name: str) -> str | None:
         preview = repr(value)
         if len(preview) > 80:
             preview = preview[:77] + "..."
-        raise ValueError(
+        raise TypeError(
             f"inputs.{input_name}.default must be a string; got {type(value).__name__} {preview}"
         )
     return value

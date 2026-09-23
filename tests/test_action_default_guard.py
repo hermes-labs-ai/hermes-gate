@@ -277,7 +277,10 @@ def test_get_retries_http_error_response_then_succeeds() -> None:
 
     class Response:
         status = 200
-        headers = {}
+
+        @property
+        def headers(self):
+            return {}
 
         def __enter__(self):
             return self
@@ -488,7 +491,7 @@ def test_input_default_empty_string_is_none() -> None:
 
 def test_input_default_rejects_non_string_yaml_values() -> None:
     manifest = "inputs:\n  version:\n    default: 0.1\n"
-    with pytest.raises(ValueError, match=r"inputs\.version\.default.*float 0\.1"):
+    with pytest.raises(TypeError, match=r"inputs\.version\.default.*float 0\.1"):
         _input_default(manifest, "version")
 
 
