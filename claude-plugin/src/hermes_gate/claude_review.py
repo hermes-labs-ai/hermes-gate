@@ -123,16 +123,15 @@ def main() -> int:
     if sys.argv[1:] == ["--version"]:
         print(VERSION)
         return 0
-    fixture = Path(sys.argv[2]) if len(sys.argv) == 3 and sys.argv[1] == "--diff-file" else None
-    if sys.argv[1:] and fixture is None:
-        print("usage: claude_jsonl_review.py [--diff-file saved-diff.json]", file=sys.stderr)
+    if sys.argv[1:]:
+        print("usage: hermes-gate-claude-review", file=sys.stderr)
         return 2
     try:
         digest = os.environ["HERMES_GATE_DIFF_DIGEST"]
         paths = json.loads(os.environ["HERMES_GATE_REVIEWED_PATHS"])
         if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
             raise ValueError("invalid selected paths")
-        diff = _fixture_diff(fixture) if fixture else _selected_diff(paths)
+        diff = _selected_diff(paths)
         findings = _review(diff, paths)
         for finding in findings:
             print(json.dumps({"type": "finding", **finding}, sort_keys=True))

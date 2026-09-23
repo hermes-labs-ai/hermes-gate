@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from hermes_gate.claude_review import _fixture_diff, _selected_diff
+from hermes_gate.claude_review import _fixture_diff, _selected_diff, main
 from hermes_gate.gitstate import scope_paths
 
 
@@ -38,6 +39,18 @@ def test_saved_diff_rejects_non_patch_payload(tmp_path: Path) -> None:
     fixture.write_text(json.dumps([{"filename": "x.py", "diff": 12}]))
     with pytest.raises(ValueError, match="fixture"):
         _fixture_diff(fixture)
+
+
+def test_public_console_rejects_saved_diff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture = tmp_path / "old.json"
+    fixture.write_text(json.dumps([{"diff": "+stale"}]))
+    monkeypatch.setattr(sys, "argv", ["hermes-gate-claude-review", "--diff-file", str(fixture)])
+    assert main() == 2
+    output = capsys.readouterr()
+    assert "usage: hermes-gate-claude-review" in output.err
+    assert '"type": "complete"' not in output.out
 
 
 def test_committed_diff_uses_same_no_upstream_base_as_gate(
