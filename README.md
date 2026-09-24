@@ -262,7 +262,7 @@ internal error returns `{"continue": true}` rather than blocking the
 session. Install it from this marketplace:
 
 ```
-/plugin marketplace add hermes-labs-ai/claude-plugins
+/plugin marketplace add hermes-labs-ai/plugins
 /plugin install hermes-gate@hermes-labs
 ```
 
