@@ -1,54 +1,15 @@
-"""Fail closed unless the Marketplace Action's README example is installable.
+"""Verify the Action install version during a release without reading README content.
 
-This runs at release time (see `.github/workflows/publish.yml`), not inside the
-pytest suite, so the normal PR gate never depends on an unauthenticated network
-call. The version this guard reasons about is always the one in the README's
-copyable `uses: hermes-labs-ai/hermes-gate@vX` example, because that is the
-only version a user copying the quickstart actually asks for. `action.yml`'s
-`version` input MAY also carry a literal `default: X` (today's main does); when
-it does, it must agree with the README. It may instead be empty or absent (the
-install version derived at runtime from the Action ref instead, the psf/black
-pattern) -- in that case there is nothing to compare it to, so the default
-comparison is simply skipped. Whether an empty default is *safe* to skip past
-(i.e. whether action.yml actually implements a working ref-derived resolver)
-is a property of action.yml, not of this guard: it is asserted by
-`tests/test_action_metadata.py`, owned by whichever change makes the default
-empty. An earlier revision of this guard tried to re-check that property here
-too, via a bare `"github.action_ref" in manifest` substring search; an
-independent verifier showed that check wrong in both directions (a comment
-mentioning `github.action_ref` with no working resolver still passed; a
-resolver spelled as the env var `$GITHUB_ACTION_REF` instead of the context
-expression still failed), so it was removed rather than patched further --
-it was a second, weaker source of truth for something action.yml's own tests
-already own.
-
-Two cases, independent of whether a literal default is present:
-
-* Releasing tag vX whose README already says `@vX`: X cannot be on PyPI yet --
-  publishing X is what this workflow run is about to do -- so requiring it
-  would deadlock every legitimate release. `actions/checkout` resolved the
-  release ref, so the checked-out tree already IS vX's own tree; this case
-  only needs that tree to actually contain `action.yml`.
-* Every other case (a local run, PR CI, or a release whose README still names
-  some earlier version Y != X): the named version must already be a published
-  PyPI release, AND its tag must exist and contain `action.yml`. That second
-  half closes a real incident: main briefly named `@v0.1.6` in the README
-  while tag `v0.1.6` predates the Marketplace Action and has no `action.yml`
-  at all -- the previous version of this guard checked only PyPI and the
-  README/default match, so it printed PASS. The tag check is proven against
-  the public GitHub contents API (`action.yml?ref=vX`) so a shallow, tagless
-  `actions/checkout` needs no extra fetch depth. It authenticates with
-  `GITHUB_TOKEN` when the workflow provides one (avoids shared-runner-IP rate
-  limiting; never required for this public repo, and never sent to PyPI). A
-  transient network errors receive a small bounded retry budget; exhaustion
-  fails closed with a readable message, never falling through to a pass.
+The Action's literal version input default is the install version when present.
+When it is absent, the release tag identifies the checked-out Action version.
+The version being published may not exist on PyPI yet; older defaults must
+already be published and have an Action manifest at their tag.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -97,15 +58,6 @@ def read_action_default() -> str | None:
     by the Action ref itself rather than by a literal default)."""
     manifest = (ROOT / "action.yml").read_text(encoding="utf-8")
     return _input_default(manifest, "version")
-
-
-def read_readme_ref() -> str:
-    """Return the version named by the README's copyable Action ref."""
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    match = re.search(r"uses: hermes-labs-ai/hermes-gate@v(\S+)", readme)
-    if not match:
-        raise ValueError("README.md has no readable Action ref")
-    return match.group(1)
 
 
 def check_published(version: str, releases: dict) -> None:
@@ -219,67 +171,46 @@ def tag_has_action_yml(version: str, *, fetch_status=None) -> bool:
 def evaluate(
     *,
     default: str | None,
-    readme_version: str,
     release_tag: str,
     local_action_yml_exists: bool,
     fetch_pypi_releases=fetch_pypi_releases,
     tag_has_action_yml=tag_has_action_yml,
 ) -> str:
-    """Return a PASS message, or raise ValueError describing the failure.
-
-    The README ref (`readme_version`) is the version this guard reasons about.
-    `default` is a *consistency* check only when action.yml carries a literal
-    one; an empty/absent default (`None`) skips that comparison entirely --
-    whether that is *safe* is asserted elsewhere, by action.yml's own tests
-    (see module docstring), not re-verified here.
-
-    Pure decision logic, factored out of `main()` so tests can inject fake
-    `fetch_pypi_releases`/`tag_has_action_yml` callables instead of touching
-    the network or the real action.yml/README.md.
-    """
-    if default and default != readme_version:
+    """Check the install version named by Action metadata for this release."""
+    if not local_action_yml_exists:
         raise ValueError(
-            f"action.yml default {default!r} does not match README ref v{readme_version!r}"
+            f"release tag {release_tag!r} checkout has no action.yml at the repository root"
         )
+    if not default and not release_tag.startswith("v"):
+        raise ValueError("action.yml has no version default and RELEASE_TAG is missing")
+    action_version = default or release_tag[1:]
 
-    if release_tag == f"v{readme_version}":
-        # actions/checkout resolved the release ref, so the checked-out tree
-        # already IS v{readme_version}'s own tree; PyPI cannot have this
-        # version yet because publishing it is what this run is about to do.
-        if not local_action_yml_exists:
-            raise ValueError(
-                f"release tag {release_tag!r} checkout has no action.yml at the repository root"
-            )
-        default_note = (
-            f"action.yml default {default!r} matches it"
-            if default
-            else "action.yml has no literal default (version is pinned by the ref at install time)"
-        )
+    if release_tag == f"v{action_version}":
+        # Publishing this release makes its package available; PyPI cannot
+        # contain it yet. The checked-out tag already contains action.yml.
         return (
-            f"PASS: README ref v{readme_version} is the release tag {release_tag!r} "
-            f"being published; {default_note}; action.yml is present in the checked-out tree"
+            f"PASS: Action install version {action_version} is release tag "
+            f"{release_tag!r} being published; action.yml is present"
         )
 
     releases = fetch_pypi_releases()
-    check_published(readme_version, releases)
-    if not tag_has_action_yml(readme_version):
+    check_published(action_version, releases)
+    if not tag_has_action_yml(action_version):
         raise ValueError(
-            f"tag 'v{readme_version}' does not contain action.yml, so the README Action "
-            f"ref names a tag that cannot install the Marketplace Action"
+            f"tag 'v{action_version}' does not contain action.yml, so the Action "
+            "default names a tag that cannot install the Marketplace Action"
         )
     return (
-        f"PASS: README ref v{readme_version} matches a published PyPI release and "
-        f"tag 'v{readme_version}' contains action.yml"
+        f"PASS: Action install version {action_version} is a published PyPI release "
+        f"and tag 'v{action_version}' contains action.yml"
     )
 
 
 def main() -> None:
     default = read_action_default()
-    readme_version = read_readme_ref()
     release_tag = os.environ.get("RELEASE_TAG", "")
     message = evaluate(
         default=default,
-        readme_version=readme_version,
         release_tag=release_tag,
         local_action_yml_exists=(ROOT / "action.yml").is_file(),
     )
