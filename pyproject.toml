@@ -43,7 +43,7 @@ Issues = "https://github.com/hermes-labs-ai/hermes-gate/issues"
 Changelog = "https://github.com/hermes-labs-ai/hermes-gate/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-test = ["pytest==9.1.1", "ruff==0.16.8", "build==1.6.1"]
+test = ["pytest==9.1.1", "ruff==0.16.8", "build==1.6.1", "PyYAML==6.0.3"]
 
 [project.scripts]
 hermes-gate = "hermes_gate.cli:main"
