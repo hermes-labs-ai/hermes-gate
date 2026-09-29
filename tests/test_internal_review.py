@@ -1,10 +1,14 @@
 from __future__ import annotations
+
 import hashlib
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
+
 import pytest
+
 from hermes_gate.config import load_config
 from hermes_gate.engine import _review_provider_matches, fast, review
 from hermes_gate.execution import Execution
@@ -104,6 +108,21 @@ def fake_adapter(monkeypatch, defect=None):
             ]
             if defect != "pass-with-findings":
                 raw["verdict"] = receipt["verdict"] = "FINDINGS"
+        if defect == "paths-string":
+            receipt["changed_paths"] = "source.py"
+        if defect == "paths-nonstrings":
+            receipt["changed_paths"] = [3]
+        if defect in {"finding-outside", "finding-line-bool", "finding-title-type"}:
+            raw["verdict"] = receipt["verdict"] = "FINDINGS"
+            raw["findings"] = [
+                {
+                    "path": "excluded.py" if defect == "finding-outside" else "source.py",
+                    "line": True if defect == "finding-line-bool" else 1,
+                    "severity": "ERROR",
+                    "title": 3 if defect == "finding-title-type" else "test",
+                    "body": "test",
+                }
+            ]
         if defect == "extra-path":
             receipt["changed_paths"].append("excluded.md")
         data = json.dumps(raw).encode()
@@ -184,3 +203,55 @@ def test_declared_receipt_model_binding():
     receipt = {"configured_provider": "hermes-pr-review", "configured_model": "claude-sonnet-5"}
     assert _review_provider_matches(receipt, "hermes-pr-review", "claude-sonnet-5")
     assert not _review_provider_matches(receipt, "hermes-pr-review", "gpt-5.6-terra")
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "paths-string",
+        "paths-nonstrings",
+        "finding-outside",
+        "finding-line-bool",
+        "finding-title-type",
+    ],
+)
+def test_malformed_or_out_of_scope_evidence_is_unavailable(repo, monkeypatch, defect):
+    assert fast(repo)["status"] == "PASS"
+    fake_adapter(monkeypatch, defect)
+    assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
+
+
+def model_selector(repo, monkeypatch):
+    config = load_config(repo)
+    model = [config.review.model]
+    monkeypatch.setattr(
+        "hermes_gate.engine.load_config",
+        lambda root: replace(config, review=replace(config.review, model=model[0])),
+    )
+    return model
+
+
+def test_model_change_invalidates_cached_receipt(repo, monkeypatch):
+    assert fast(repo)["status"] == "PASS"
+    model = model_selector(repo, monkeypatch)
+    calls = fake_adapter(monkeypatch)
+    assert review(repo)["status"] == "PASS"
+    assert len(calls) == 1
+    model[0] = "gpt-5.6-terra"
+    second = review(repo)
+    assert second["status"] == "PASS"
+    assert not second.get("cached", False)
+    assert len(calls) == 2
+    assert "--run-codex" in calls[-1]
+
+
+def test_model_change_does_not_reset_exhausted_semantic_budget(repo, monkeypatch):
+    assert fast(repo)["status"] == "PASS"
+    model = model_selector(repo, monkeypatch)
+    calls = fake_adapter(monkeypatch, "material")
+    assert review(repo)["status"] == "FAIL"
+    assert review(repo)["status"] == "FAIL"
+    assert len(calls) == 2
+    model[0] = "gpt-5.6-terra"
+    assert review(repo)["status"] == "PARKED"
+    assert len(calls) == 2

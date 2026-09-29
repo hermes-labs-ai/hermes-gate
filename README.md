@@ -224,7 +224,10 @@ Git directory. Models beginning with `claude` select the subscription-backed
 Claude runner; other models select Codex (default `gpt-5.6-terra`). Gate requires
 zero exit status and a validated receipt matching the head, base, model, engine,
 reviewed paths, and review bytes. Missing or unevaluated evidence remains unavailable.
-This provider does not fall back to an external reviewer.
+This provider does not fall back to an external reviewer. Changing the model
+invalidates receipt reuse, but does not reset the two completed semantic attempts
+allowed for the same provider and exact diff. Switching models after that budget
+is exhausted remains parked; infrastructure failures do not spend that budget.
 
 For a local reviewer, configure the profile as follows:
 

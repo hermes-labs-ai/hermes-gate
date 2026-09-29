@@ -5,8 +5,8 @@ import hashlib
 import json
 import os
 import shutil
-import time
 import tempfile
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -596,6 +596,9 @@ def _normalize_internal_review(
         engine = "claude" if config.review.model.startswith("claude") else "codex"
         if not isinstance(raw, dict) or not isinstance(receipt, dict):
             return unavailable
+        changed = receipt.get("changed_paths")
+        if not isinstance(changed, list) or any(not isinstance(path, str) for path in changed):
+            return unavailable
         if (
             raw.get("schema_version") != 1
             or receipt.get("schema_version") != 1
@@ -608,7 +611,7 @@ def _normalize_internal_review(
             or receipt.get("engine") != engine
             or receipt.get("model") != config.review.model
             or receipt.get("review_sha256") != hashlib.sha256(review_bytes).hexdigest()
-            or not set(selected).issubset(set(receipt.get("changed_paths", [])))
+            or not set(selected).issubset(set(changed))
             or raw.get("reviewed_head_sha") != head(root)
             or raw.get("base_sha") != base
             or raw.get("verdict") not in {"PASS", "FINDINGS"}
@@ -617,6 +620,17 @@ def _normalize_internal_review(
             return unavailable
         findings = raw.get("findings")
         if not isinstance(findings, list) or any(not isinstance(f, dict) for f in findings):
+            return unavailable
+        if any(
+            not isinstance(f.get("path"), str)
+            or f["path"] not in selected
+            or type(f.get("line")) is not int
+            or f["line"] < 1
+            or any(
+                not isinstance(f.get(key), str) or not f[key].strip() for key in ("title", "body")
+            )
+            for f in findings
+        ):
             return unavailable
         if any(f.get("severity") not in {"ERROR", "WARNING", "INFO"} for f in findings):
             return unavailable
