@@ -229,6 +229,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             started,
             reason="hermes-pr-review requires a clean committed comparison",
         )
+    internal_head = head(root) if config.review.provider == "hermes-pr-review" else None
     provider_version = _tool_version(config.review.argv[0], root)
     provider_argv = _provider_review_argv(config, root, base=scope_base)
     internal_output = None
@@ -272,7 +273,11 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         timeout_seconds=config.review.timeout_seconds + (5 if internal_output is not None else 0),
         env=provider_env,
     )
-    if execution.unavailable or execution.timed_out or execution.output_truncated:
+    if internal_head is not None and (head(root) != internal_head or changed_paths(root)):
+        normalized = NormalizedReview(
+            Status.REVIEW_UNAVAILABLE, (), 0, "internal reviewer changed HEAD or working tree"
+        )
+    elif execution.unavailable or execution.timed_out or execution.output_truncated:
         normalized = NormalizedReview(
             Status.REVIEW_UNAVAILABLE, (), 0, "provider unavailable, timed out, or truncated"
         )
@@ -283,7 +288,9 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             material_categories=config.review.material_categories,
         )
     elif internal_output is not None:
-        normalized = _normalize_internal_review(config, root, scope_base, internal_output, selected)
+        normalized = _normalize_internal_review(
+            config, root, scope_base, internal_output, selected, internal_head
+        )
     elif config.review.provider == "jsonl":
         normalized = normalize_jsonl_output(
             execution.stdout,
@@ -326,7 +333,11 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         post_digest, failure = _digest_or_error(root, selected, "review", started, base=scope_base)
         if failure:
             return failure
-        if post_digest != digest:
+        if internal_head is not None and (head(root) != internal_head or changed_paths(root)):
+            normalized = NormalizedReview(
+                Status.REVIEW_UNAVAILABLE, (), 0, "internal reviewer changed HEAD or working tree"
+            )
+        elif post_digest != digest:
             normalized = NormalizedReview(
                 Status.REVIEW_UNAVAILABLE, (), 0, "reviewer changed the scoped files"
             )
@@ -583,7 +594,7 @@ def _execution_dict(execution: Execution, name: str) -> dict[str, Any]:
 
 
 def _normalize_internal_review(
-    config: GateConfig, root: Path, base: str, output: Path, selected: list[str]
+    config: GateConfig, root: Path, base: str, output: Path, selected: list[str], expected_head: str
 ) -> NormalizedReview:
     """Accept only the existing adapter's validated, exact-boundary receipt."""
     unavailable = NormalizedReview(
@@ -606,13 +617,13 @@ def _normalize_internal_review(
             or receipt.get("outer_workflow_status") != "VALIDATED"
             or receipt.get("github_mutation") is not False
             or receipt.get("repo") != str(root.resolve())
-            or receipt.get("head_sha") != head(root)
+            or receipt.get("head_sha") != expected_head
             or receipt.get("base_sha") != base
             or receipt.get("engine") != engine
             or receipt.get("model") != config.review.model
             or receipt.get("review_sha256") != hashlib.sha256(review_bytes).hexdigest()
             or not set(selected).issubset(set(changed))
-            or raw.get("reviewed_head_sha") != head(root)
+            or raw.get("reviewed_head_sha") != expected_head
             or raw.get("base_sha") != base
             or raw.get("verdict") not in {"PASS", "FINDINGS"}
             or receipt.get("verdict") != raw.get("verdict")

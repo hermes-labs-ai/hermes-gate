@@ -58,6 +58,14 @@ def fake_adapter(monkeypatch, defect=None):
         base = argv[argv.index("--base") + 1]
         model = argv[argv.index("--model") + 1]
         engine = "claude" if "--run-claude" in argv else "codex"
+        if defect == "advance-head":
+            git(root, "commit", "--allow-empty", "-qm", "adapter mutation")
+        if defect == "dirty-untracked":
+            (root / "outside.py").write_text("unreviewed=1\n")
+        if defect in {"dirty-tracked", "dirty-staged"}:
+            (root / "outside.py").write_text("unreviewed=2\n")
+            if defect == "dirty-staged":
+                git(root, "add", "outside.py")
         raw = {
             "schema_version": 1,
             "reviewed_head_sha": git(root, "rev-parse", "HEAD"),
@@ -311,3 +319,26 @@ def test_declared_provider_preserves_configured_material_filters(repo, monkeypat
     result = review(repo)
     assert result["status"] == "PASS"
     assert result["receipt"]["suppressed_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "mutation", ["advance-head", "dirty-untracked", "dirty-tracked", "dirty-staged"]
+)
+def test_internal_adapter_repository_mutation_cannot_emit_pass(repo, monkeypatch, mutation):
+    if mutation in {"dirty-tracked", "dirty-staged"}:
+        git(repo, "reset", "--hard", "HEAD^")
+        (repo / "outside.py").write_text("unreviewed=0\n")
+        git(repo, "add", "outside.py")
+        git(repo, "commit", "--amend", "--no-edit", "-q")
+        (repo / "source.py").write_text("x=2\n")
+        git(repo, "add", "source.py")
+        git(repo, "commit", "-qm", "reviewed change")
+    assert fast(repo)["status"] == "PASS"
+    expected_head = git(repo, "rev-parse", "HEAD")
+    fake_adapter(monkeypatch, mutation)
+    result = review(repo)
+    assert result["status"] == "REVIEW_UNAVAILABLE"
+    assert result["receipt"]["status"] == "REVIEW_UNAVAILABLE"
+    assert "changed HEAD or working tree" in result["reason"]
+    if mutation == "advance-head":
+        assert git(repo, "rev-parse", "HEAD") != expected_head
