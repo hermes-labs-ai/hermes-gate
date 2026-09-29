@@ -342,3 +342,18 @@ def test_internal_adapter_repository_mutation_cannot_emit_pass(repo, monkeypatch
     assert "changed HEAD or working tree" in result["reason"]
     if mutation == "advance-head":
         assert git(repo, "rev-parse", "HEAD") != expected_head
+
+
+@pytest.mark.parametrize("provider", ["coderabbit", "jsonl"])
+@pytest.mark.parametrize("value", [5, "", "   ", "--run-claude"])
+def test_other_providers_keep_ignoring_unused_model_config(repo, provider, value):
+    profile = repo / ".hermes/gate.toml"
+    profile.write_text(
+        profile.read_text()
+        .replace('provider="hermes-pr-review"', "provider=" + json.dumps(provider))
+        .replace('model="claude-sonnet-5"', "model=" + json.dumps(value))
+    )
+    config = load_config(repo)
+    assert config.review.provider == provider
+    assert config.review.model == ReviewSpec.model
+    assert config.review.argv == ("hermes-pr-review",)

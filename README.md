@@ -228,7 +228,8 @@ Adapter `ERROR` and `WARNING` findings map to Gate `major`/`correctness`; `INFO`
 maps to `minor`/`correctness`. The configured material severity and category filters
 still apply, and suppressed findings remain counted in the receipt. This means a
 custom filter can accept adapter findings outside the owner's material policy.
-Models must be nonempty strings that do not begin with `-`; their spelling is preserved.
+Declared internal models must be nonempty strings that do not begin with `-`; their
+spelling is preserved. Other providers continue to ignore this unused model option.
 This provider does not fall back to an external reviewer. Changing the model
 invalidates receipt reuse, but does not reset the two completed semantic attempts
 allowed for the same provider and exact diff. Switching models after that budget

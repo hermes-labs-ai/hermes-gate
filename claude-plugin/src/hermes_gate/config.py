@@ -162,7 +162,11 @@ def load_config(root: Path) -> GateConfig:
             f"supported: {', '.join(SUPPORTED_REVIEW_PROVIDERS)} "
             "(review.argv[0] may still name any compatible executable)"
         )
-    model = review.get("model", "gpt-5.6-terra")
+    model = (
+        review.get("model", ReviewSpec.model)
+        if provider == "hermes-pr-review"
+        else ReviewSpec.model
+    )
     if not isinstance(model, str) or not model.strip() or model.startswith("-"):
         raise ConfigError("review.model must be a nonempty string that does not start with '-'")
     return GateConfig(
