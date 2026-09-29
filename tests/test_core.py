@@ -1083,3 +1083,53 @@ def test_review_fresh_flag_is_accepted_by_the_cli(
     assert seen["fresh"] is True
     cli_main(["review"])
     assert seen["fresh"] is False
+
+
+def test_review_fresh_is_rejected_for_a_provider_without_fresh_support(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    profile = repo / ".hermes" / "gate.toml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace('provider = "coderabbit"', 'provider = "jsonl"'),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    monkeypatch.setattr(
+        "hermes_gate.engine.run_argv",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("provider must not run")),
+    )
+
+    out = review(repo, fresh=True)
+
+    assert out["status"] == "ERROR"
+    assert "--fresh" in out["reason"]
+
+
+def test_non_pass_fresh_review_replaces_a_stored_pass_receipt(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    outputs = iter(
+        [
+            '{"type":"complete"}',
+            (
+                '{"type":"finding","severity":"critical","category":"correctness","message":"bug"}\n'
+                '{"type":"complete"}'
+            ),
+        ]
+    )
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *a, **k: "test")
+    monkeypatch.setattr(
+        "hermes_gate.engine.run_argv",
+        lambda argv, **k: Execution(tuple(argv), 0, 0, next(outputs), ""),
+    )
+
+    assert review(repo)["status"] == "PASS"
+    assert review(repo, fresh=True)["status"] == "FAIL"
+
+    assert valid_receipt(repo, "review") is None
+    assert review(repo).get("cached") is not True

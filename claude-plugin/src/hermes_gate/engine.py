@@ -205,7 +205,13 @@ def review(root: Path, *, base: str | None = None, fresh: bool = False) -> dict[
             started,
             reason="matching fast PASS required; run hermes-gate fast",
         )
-    fresh = fresh and config.review.provider == "coderabbit"
+    if fresh and config.review.provider != "coderabbit":
+        return result(
+            "review",
+            Status.ERROR,
+            started,
+            reason="--fresh is supported only for the coderabbit review provider",
+        )
     cached = None if fresh else valid_receipt(root, "review", digest)
     if cached and _review_provider_matches(cached, config.review.provider):
         return result("review", Status.PASS, started, receipt=cached, cached=True)

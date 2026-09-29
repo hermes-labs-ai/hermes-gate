@@ -15,7 +15,8 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 ### Added
 
 - `hermes-gate review --fresh` asks the CodeRabbit provider for a new detailed review
-  (appends `--fresh` to its command) and does not reuse a stored review receipt.
+  (appends `--fresh` to its command) and does not reuse a stored review receipt. With any
+  other review provider it stops with an error instead of silently ignoring the flag.
 
 ## [0.1.7] - 2026-09-18
 
