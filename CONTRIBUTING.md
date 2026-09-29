@@ -20,7 +20,7 @@ be implemented safely with the standard library.
 - Add or update tests for behavior changes.
 - Keep command execution argv-based; do not introduce implicit shells.
 - Keep generated runtime state under the repository Git directory or the user cache.
-- Never auto-install PyGate, QuickGate.js, reviewers, or project tools.
+- Never auto-install PyGate, Quick Gate, reviewers, or project tools.
 - Preserve the canonical bytes of `schemas/gate-result-v1.schema.json`.
 - Document what a receipt proves and what it does not prove.
 
