@@ -1197,3 +1197,26 @@ def test_other_provider_receipt_mentioning_the_phrase_is_not_rejected(repo: Path
     )
 
     assert valid_receipt(repo, "review", digest) is not None
+
+
+def test_review_fresh_error_for_unsupported_provider_precedes_fast_receipt_parking(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    profile = repo / ".hermes" / "gate.toml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace('provider = "coderabbit"', 'provider = "jsonl"'),
+        encoding="utf-8",
+    )
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "hermes_gate.engine.run_argv",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("provider must not run")),
+    )
+
+    # No fast receipt exists: a plain review parks, but --fresh must report the real problem.
+    assert review(repo)["status"] == "PARKED"
+    out = review(repo, fresh=True)
+
+    assert out["status"] == "ERROR"
+    assert "--fresh" in out["reason"]

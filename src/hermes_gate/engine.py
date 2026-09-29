@@ -190,6 +190,13 @@ def review(root: Path, *, base: str | None = None, fresh: bool = False) -> dict[
         return result("review", Status.NOT_CONFIGURED, started, reason="run hermes-gate init")
     except ConfigError as exc:
         return result("review", Status.ERROR, started, reason=f"invalid profile: {exc}")
+    if fresh and config.review.provider != "coderabbit":
+        return result(
+            "review",
+            Status.ERROR,
+            started,
+            reason="--fresh is supported only for the coderabbit review provider",
+        )
     raw_selected, scope_base, scope_failure = _scope_or_error(root, "review", started, base=base)
     if scope_failure:
         return scope_failure
@@ -204,13 +211,6 @@ def review(root: Path, *, base: str | None = None, fresh: bool = False) -> dict[
             Status.PARKED,
             started,
             reason="matching fast PASS required; run hermes-gate fast",
-        )
-    if fresh and config.review.provider != "coderabbit":
-        return result(
-            "review",
-            Status.ERROR,
-            started,
-            reason="--fresh is supported only for the coderabbit review provider",
         )
     cached = None if fresh else valid_receipt(root, "review", digest)
     if cached and _review_provider_matches(cached, config.review.provider):
