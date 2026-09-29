@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from hermes_gate.config import ReviewSpec, load_config
+from hermes_gate.config import ConfigError, ReviewSpec, load_config
 from hermes_gate.engine import _review_provider_matches, fast, review
 from hermes_gate.execution import Execution
 
@@ -285,3 +285,29 @@ def test_adapter_semantic_deadline_unchanged_with_outer_serialization_grace(repo
 
     monkeypatch.setattr(engine, "run_argv", checked)
     assert review(repo)["status"] == "PASS"
+
+
+@pytest.mark.parametrize("value", [5, "", "   ", "--run-claude"])
+def test_invalid_review_model_rejected_as_profile_error(repo, value):
+    profile = repo / ".hermes/gate.toml"
+    profile.write_text(
+        profile.read_text().replace('model="claude-sonnet-5"', "model=" + json.dumps(value))
+    )
+    with pytest.raises(ConfigError, match="review.model"):
+        load_config(repo)
+
+
+@pytest.mark.parametrize(
+    "policy", [{"material_categories": ("security",)}, {"material_severities": ("critical",)}]
+)
+def test_declared_provider_preserves_configured_material_filters(repo, monkeypatch, policy):
+    config = load_config(repo)
+    monkeypatch.setattr(
+        "hermes_gate.engine.load_config",
+        lambda root: replace(config, review=replace(config.review, **policy)),
+    )
+    assert fast(repo)["status"] == "PASS"
+    fake_adapter(monkeypatch, "material")
+    result = review(repo)
+    assert result["status"] == "PASS"
+    assert result["receipt"]["suppressed_count"] == 1

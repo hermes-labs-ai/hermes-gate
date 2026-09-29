@@ -162,6 +162,9 @@ def load_config(root: Path) -> GateConfig:
             f"supported: {', '.join(SUPPORTED_REVIEW_PROVIDERS)} "
             "(review.argv[0] may still name any compatible executable)"
         )
+    model = review.get("model", "gpt-5.6-terra")
+    if not isinstance(model, str) or not model.strip() or model.startswith("-"):
+        raise ConfigError("review.model must be a nonempty string that does not start with '-'")
     return GateConfig(
         root=root,
         fast_budget_seconds=budget,
@@ -181,7 +184,7 @@ def load_config(root: Path) -> GateConfig:
         ),
         review=ReviewSpec(
             provider=provider,
-            model=str(review.get("model", "gpt-5.6-terra")),
+            model=model,
             argv=_strings(review.get("argv", list(ReviewSpec.argv)), "review.argv"),
             timeout_seconds=float(review.get("timeout_seconds", 180.0)),
             material_severities=tuple(
