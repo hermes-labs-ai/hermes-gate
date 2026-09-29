@@ -27,4 +27,6 @@ be implemented safely with the standard library.
 Before handing off a change, run `ruff check .`, `pytest`, a wheel build, an
 isolated install smoke test, and an absolute-path/credential scan.
 
+Bugs and feature requests: https://github.com/hermes-labs-ai/hermes-gate/issues
+
 By contributing, you agree that your contribution is licensed under Apache-2.0.
