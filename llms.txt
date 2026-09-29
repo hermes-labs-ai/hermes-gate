@@ -18,6 +18,7 @@ Install: `pip install hermes-gate`. Python 3.11+. Apache-2.0 licensed.
 
 ## Related
 
+- [quick-gate-python](https://github.com/hermes-labs-ai/quick-gate-python) (PyPI `pygate-ci`) and [quick-gate-js](https://github.com/hermes-labs-ai/quick-gate-js) (npm `quick-gate`): Python and JS/TS check primitives that emit the shared `gate-result/v1` contract; hermes-gate can optionally wrap them through an opt-in adapter. See README "Relationship to PyGate and Quick Gate".
 - [agent-signage](https://github.com/hermes-labs-ai/agent-signage): PreToolUse hook that injects git-state facts into a coding agent's context — complements hermes-gate's post-work completion rail with a pre-work freshness check.
 - [rule-audit](https://github.com/hermes-labs-ai/rule-audit): static contradiction/coverage analysis for AI system prompts.
 - [hermes-rubric](https://github.com/hermes-labs-ai/hermes-rubric): evidence-first LLM-as-judge scoring, usable as a `hermes-gate review` provider.
