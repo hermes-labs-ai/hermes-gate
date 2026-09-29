@@ -162,7 +162,7 @@ globs = ["**/*.py"]
 ## Optional primitive adapters
 
 HermesGate packages a standard-library loader and validator for the shared
-`gate-result/v1` schema. PyGate and QuickGate.js adapters are opt-in and
+`gate-result/v1` schema. PyGate and Quick Gate (npm `quick-gate`) adapters are opt-in and
 isolated; HermesGate never downloads or installs them.
 
 PyGate 0.2.0 or newer:
@@ -175,7 +175,7 @@ argv = ["pygate"]
 minimum_version = "0.2.0"
 ```
 
-QuickGate.js 0.2.3 or newer:
+Quick Gate (npm `quick-gate`) 0.2.3 or newer:
 
 ```toml
 [adapter]

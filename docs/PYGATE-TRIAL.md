@@ -8,7 +8,7 @@ HermesGate 0.1.2 accepts only explicit, preinstalled adapters that meet these
 floors:
 
 - PyGate 0.2.0 or newer
-- QuickGate.js 0.2.3 or newer
+- Quick Gate (npm `quick-gate`) 0.2.3 or newer
 
 Both must emit a valid `gate-result/v1` document. The adapter is disabled by
 default, does not install packages, and writes its changed-file input and result

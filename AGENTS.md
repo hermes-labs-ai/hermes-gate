@@ -38,7 +38,7 @@ python -m build
 
 - Keep command execution argv-based; do not introduce implicit shells.
 - Keep generated runtime state under the repository Git directory or the user cache.
-- Never auto-install PyGate, QuickGate.js, reviewers, or project tools.
+- Never auto-install PyGate, Quick Gate, reviewers, or project tools.
 - Preserve the canonical bytes of `schemas/gate-result-v1.schema.json`.
 - Keep runtime dependencies at zero unless a change cannot be implemented safely with
   the standard library.
