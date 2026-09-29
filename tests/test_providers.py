@@ -129,3 +129,63 @@ def test_jsonl_review_rejects_malformed_or_unscoped_claims() -> None:
         json.dumps({"type": "error", "message": "review failed"}) + "\n" + complete,
     ):
         assert normalize_jsonl_output(payload, digest="exact", reviewed_paths=["src/store.py"]).status == "REVIEW_UNAVAILABLE"
+
+
+def _cached_review_stream(findings: int = 0) -> str:
+    """Actual CLI stream when CodeRabbit reuses a prior result instead of reviewing."""
+    events = [
+        {"type": "review_context", "reviewType": "committed"},
+        {"type": "status", "phase": "analyzing", "status": "reviewing"},
+    ]
+    events.extend(
+        {"type": "finding", "severity": "critical", "category": "security", "message": "bad"}
+        for _ in range(findings)
+    )
+    events.append(
+        {
+            "type": "complete",
+            "status": "review_completed",
+            "findings": findings,
+            "reviewedFiles": ["CONTRIBUTING.md"],
+            "outcome": "completed",
+            "message": (
+                "No fresh detailed file review was performed in this run. To review the "
+                "selected changes again, rerun your command with --fresh."
+            ),
+        }
+    )
+    return "\n".join(json.dumps(event) for event in events)
+
+
+def test_cached_zero_finding_review_is_unavailable_not_pass() -> None:
+    result = normalize_coderabbit_output(_cached_review_stream())
+
+    assert result.status == "REVIEW_UNAVAILABLE"
+    assert result.findings == ()
+    assert "--fresh" in result.reason
+
+
+def test_cached_review_that_still_reports_material_findings_fails() -> None:
+    result = normalize_coderabbit_output(_cached_review_stream(findings=1))
+
+    assert result.status == "FAIL"
+    assert len(result.findings) == 1
+
+
+def test_fresh_completion_message_still_passes() -> None:
+    stream = "\n".join(
+        [
+            json.dumps({"type": "status", "status": "reviewing"}),
+            json.dumps(
+                {
+                    "type": "complete",
+                    "status": "review_completed",
+                    "findings": 0,
+                    "outcome": "completed",
+                    "message": "Review completed",
+                }
+            ),
+        ]
+    )
+
+    assert normalize_coderabbit_output(stream).status == "PASS"

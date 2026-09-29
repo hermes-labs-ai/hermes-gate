@@ -1038,3 +1038,48 @@ def test_config_accepts_alternate_executable_for_coderabbit_provider(repo: Path)
 
     assert config.review.provider == "coderabbit"
     assert config.review.argv[0] == "cr"
+
+
+def test_review_fresh_bypasses_cached_receipt_and_requests_fresh_provider_run(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_profile(repo)
+    (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    seen: list[tuple[str, ...]] = []
+
+    def provider(argv: tuple[str, ...], *args: object, **kwargs: object) -> Execution:
+        seen.append(tuple(argv))
+        return Execution(tuple(argv), 0, 0, '{"type":"complete"}', "")
+
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+
+    assert review(repo)["status"] == "PASS"
+    assert "--fresh" not in seen[0]
+    # A repeat without --fresh reuses the exact receipt and never calls the provider.
+    assert review(repo)["status"] == "PASS"
+    assert len(seen) == 1
+    # --fresh must run the provider again with --fresh, not return the stored PASS.
+    fresh = review(repo, fresh=True)
+    assert fresh["status"] == "PASS"
+    assert len(seen) == 2
+    assert seen[1][-1] == "--fresh" and seen[1].count("--fresh") == 1
+    assert not fresh.get("cached")
+
+
+def test_review_fresh_flag_is_accepted_by_the_cli(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_review(root: Path, *, base: str | None = None, fresh: bool = False) -> dict[str, object]:
+        seen["fresh"] = fresh
+        return {"schema": "hermes-gate/result-v1", "command": "review", "status": "PASS"}
+
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("hermes_gate.cli.review", fake_review)
+    cli_main(["review", "--fresh"])
+    assert seen["fresh"] is True
+    cli_main(["review"])
+    assert seen["fresh"] is False

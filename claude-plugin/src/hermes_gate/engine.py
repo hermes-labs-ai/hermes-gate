@@ -182,7 +182,7 @@ def repair(root: Path) -> dict[str, Any]:
     return result("repair", status, started, reason=reason, checks=checks)
 
 
-def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
+def review(root: Path, *, base: str | None = None, fresh: bool = False) -> dict[str, Any]:
     started = time.monotonic()
     try:
         config = load_config(root)
@@ -205,7 +205,8 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             started,
             reason="matching fast PASS required; run hermes-gate fast",
         )
-    cached = valid_receipt(root, "review", digest)
+    fresh = fresh and config.review.provider == "coderabbit"
+    cached = None if fresh else valid_receipt(root, "review", digest)
     if cached and _review_provider_matches(cached, config.review.provider):
         return result("review", Status.PASS, started, receipt=cached, cached=True)
     budget_path = _state_file(root, "review-budget.json")
@@ -222,6 +223,9 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
 
     provider_version = _tool_version(config.review.argv[0], root)
     provider_argv = _provider_review_argv(config, root, base=scope_base)
+    if fresh and "--fresh" not in provider_argv:
+        # Ask CodeRabbit for a new detailed review instead of reusing its prior result.
+        provider_argv = (*provider_argv, "--fresh")
     provider_env = None
     if config.review.provider == "jsonl":
         provider_env = {

@@ -63,6 +63,7 @@ def normalize_coderabbit_output(
     findings: list[Finding] = []
     suppressed = 0
     completed = False
+    reused = False
     error = ""
     for event in events:
         event_type = str(event.get("type", "")).lower()
@@ -70,6 +71,10 @@ def normalize_coderabbit_output(
             error = str(event.get("message") or event.get("error") or "provider error")
         if event_type in {"complete", "completed"}:
             completed = True
+            # CodeRabbit reuses a prior result for an already-seen selection and says so
+            # here. That run reviewed nothing, so it must never count as a clean review.
+            if "no fresh detailed file review" in str(event.get("message", "")).lower():
+                reused = True
         if event_type != "finding":
             continue
         severity = str(event.get("severity", "info")).lower()
@@ -100,6 +105,13 @@ def normalize_coderabbit_output(
     if not completed:
         return NormalizedReview(
             Status.REVIEW_UNAVAILABLE, (), suppressed, "review did not complete"
+        )
+    if reused and not findings:
+        return NormalizedReview(
+            Status.REVIEW_UNAVAILABLE,
+            (),
+            suppressed,
+            "provider reused a prior result and performed no fresh review; rerun with --fresh",
         )
     return NormalizedReview(
         Status.FAIL if findings else Status.PASS,

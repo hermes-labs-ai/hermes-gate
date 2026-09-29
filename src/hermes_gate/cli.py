@@ -37,6 +37,11 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("repair", help="run one configured deterministic repair")
     review_command = sub.add_parser("review", help="run one bounded independent review")
     review_command.add_argument("--base", help="committed base revision for a clean detached checkout")
+    review_command.add_argument(
+        "--fresh",
+        action="store_true",
+        help="ask the CodeRabbit provider for a new detailed review instead of a reused result",
+    )
     sub.add_parser("full", help="run the complete declared repository contract")
     bound = sub.add_parser("boundary", help="validate exact receipts for a Git or PR boundary")
     bound.add_argument("action", choices=("commit", "push", "pr-create", "pr-ready"))
@@ -82,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         "init": lambda: _wrap_init(root, args.force),
         "fast": lambda: fast(root, base=_scope_base(args)),
         "repair": lambda: repair(root),
-        "review": lambda: review(root, base=_scope_base(args)),
+        "review": lambda: review(root, base=_scope_base(args), fresh=args.fresh),
         "full": lambda: full(root),
         "boundary": lambda: boundary(root, args.action),
         "uninstall-repo": lambda: _wrap_uninstall(root),
