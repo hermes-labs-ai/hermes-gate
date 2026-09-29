@@ -11,6 +11,9 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 - A CodeRabbit run that reports `No fresh detailed file review was performed` (a reused
   prior result) is now `REVIEW_UNAVAILABLE`, not a clean `PASS`. A reused result that still
   carries material findings keeps failing.
+- Stored review PASS receipts whose captured CodeRabbit stdout says `No fresh detailed file
+  review was performed` are no longer honored by `review`, `boundary push`, or PR boundaries.
+  Detailed reviews and other providers are unaffected.
 
 ### Added
 

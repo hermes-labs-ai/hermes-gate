@@ -1,0 +1,27 @@
+{
+  "checks": [
+    {
+      "argv": [
+        "coderabbit",
+        "review",
+        "--agent",
+        "--committed",
+        "--base-commit",
+        "a0e782e84e89a891b6c5e7e6e5fde26253cb99af"
+      ],
+      "elapsed_ms": 34407,
+      "name": "coderabbit",
+      "output_truncated": false,
+      "reason": "",
+      "returncode": 0,
+      "status": "PASS",
+      "stderr": "(node:25878) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `coderabbit --trace-warnings ...` to show where the warning was created)\n",
+      "stdout": "{\"type\":\"review_context\",\"reviewType\":\"committed\",\"currentBranch\":\"docs/contributing-matches-ci\",\"baseBranch\":\"main\",\"baseCommit\":\"a0e782e84e89a891b6c5e7e6e5fde26253cb99af\",\"workingDirectory\":\"/tmp/example-repo\"}\n{\"type\":\"status\",\"phase\":\"connecting\",\"status\":\"connecting_to_review_service\"}\n{\"type\":\"status\",\"phase\":\"setup\",\"status\":\"setting_up\"}\n{\"type\":\"status\",\"phase\":\"analyzing\",\"status\":\"summarizing\"}\n{\"type\":\"status\",\"phase\":\"analyzing\",\"status\":\"reviewing\"}\n{\"type\":\"complete\",\"status\":\"review_completed\",\"findings\":0,\"reviewedFiles\":[\"CONTRIBUTING.md\"],\"outcome\":\"completed\",\"message\":\"No fresh detailed file review was performed in this run. To review the selected changes again, rerun your command with --fresh.\"}\n",
+      "timed_out": false,
+      "unavailable": false
+    }
+  ],
+  "note": "Sanitized copy of a real legacy Gate review receipt: PASS was recorded although CodeRabbit reused a prior result (complete event says no fresh detailed review).",
+  "provider": "coderabbit",
+  "status": "PASS"
+}

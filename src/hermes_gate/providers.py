@@ -34,6 +34,40 @@ class NormalizedReview:
     reason: str = ""
 
 
+REUSED_RESULT_MARKER = "no fresh detailed file review"
+
+
+def is_reused_result_message(message: object) -> bool:
+    """True when CodeRabbit says it reused a prior result and reviewed nothing."""
+    return REUSED_RESULT_MARKER in str(message).lower()
+
+
+def receipt_records_reused_result(receipt: dict[str, Any]) -> bool:
+    """True when a stored CodeRabbit receipt captured a reused-result completion event.
+
+    Only the provider's own captured stdout is inspected, so legitimate detailed reviews and
+    other providers are never affected.
+    """
+    checks = receipt.get("checks")
+    if not isinstance(checks, list):
+        return False
+    for check in checks:
+        if not isinstance(check, dict) or check.get("name") != "coderabbit":
+            continue
+        for line in str(check.get("stdout", "")).splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(event, dict)
+                and str(event.get("type", "")).lower() in {"complete", "completed"}
+                and is_reused_result_message(event.get("message", ""))
+            ):
+                return True
+    return False
+
+
 def normalize_coderabbit_output(
     payload: str | dict[str, Any] | list[Any],
     *,
@@ -73,7 +107,7 @@ def normalize_coderabbit_output(
             completed = True
             # CodeRabbit reuses a prior result for an already-seen selection and says so
             # here. That run reviewed nothing, so it must never count as a clean review.
-            if "no fresh detailed file review" in str(event.get("message", "")).lower():
+            if is_reused_result_message(event.get("message", "")):
                 reused = True
         if event_type != "finding":
             continue

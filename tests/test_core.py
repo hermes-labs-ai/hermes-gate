@@ -1133,3 +1133,67 @@ def test_non_pass_fresh_review_replaces_a_stored_pass_receipt(
 
     assert valid_receipt(repo, "review") is None
     assert review(repo).get("cached") is not True
+
+
+def _legacy_reused_receipt_checks() -> list[dict[str, object]]:
+    fixture = Path(__file__).parent / "fixtures" / "coderabbit_reused_review_receipt.json"
+    return json.loads(fixture.read_text(encoding="utf-8"))["checks"]
+
+
+def test_legacy_pass_receipt_from_reused_coderabbit_result_is_not_honored(repo: Path) -> None:
+    from hermes_gate.receipts import write_receipt
+
+    write_profile(repo)
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    digest = diff_digest(repo)
+    write_receipt(
+        repo, "review", status="PASS", digest=digest, elapsed_ms=1,
+        checks=_legacy_reused_receipt_checks(),
+        extra={"provider": "coderabbit", "configured_provider": "coderabbit"},
+    )
+
+    assert valid_receipt(repo, "review", digest) is None
+    outcome = boundary(repo, "push")
+    assert outcome["status"] == "FAIL"
+    assert "review" in outcome["missing"]
+
+
+def test_detailed_coderabbit_pass_receipt_is_still_honored(repo: Path) -> None:
+    from hermes_gate.receipts import write_receipt
+
+    write_profile(repo)
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    digest = diff_digest(repo)
+    checks = json.loads(
+        json.dumps(_legacy_reused_receipt_checks()).replace(
+            "No fresh detailed file review was performed in this run. To review the selected "
+            "changes again, rerun your command with --fresh.",
+            "Review completed",
+        )
+    )
+    assert "No fresh" not in json.dumps(checks)
+    write_receipt(
+        repo, "review", status="PASS", digest=digest, elapsed_ms=1, checks=checks,
+        extra={"provider": "coderabbit", "configured_provider": "coderabbit"},
+    )
+
+    assert valid_receipt(repo, "review", digest) is not None
+    assert boundary(repo, "push")["status"] == "PASS"
+
+
+def test_other_provider_receipt_mentioning_the_phrase_is_not_rejected(repo: Path) -> None:
+    from hermes_gate.receipts import write_receipt
+
+    write_profile(repo)
+    (repo / "source.py").write_text("value = 1\n", encoding="utf-8")
+    assert fast(repo)["status"] == "PASS"
+    digest = diff_digest(repo)
+    checks = [dict(check, name="jsonl") for check in _legacy_reused_receipt_checks()]
+    write_receipt(
+        repo, "review", status="PASS", digest=digest, elapsed_ms=1, checks=checks,
+        extra={"provider": "jsonl", "configured_provider": "jsonl"},
+    )
+
+    assert valid_receipt(repo, "review", digest) is not None

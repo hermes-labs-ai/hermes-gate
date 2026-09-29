@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .gitstate import diff_digest, git_dir, head, repo_identity
+from .providers import receipt_records_reused_result
 
 SCHEMA = "hermes-gate/receipt-v1"
 
@@ -73,6 +74,10 @@ def valid_receipt(root: Path, kind: str, digest: str | None = None) -> dict[str,
     if raw.get("repository", {}).get("root") != str(root.resolve()):
         return None
     if raw.get("repository", {}).get("head") != head(root):
+        return None
+    if kind == "review" and receipt_records_reused_result(raw):
+        # Legacy PASS written before reused CodeRabbit results were rejected: the provider
+        # itself said it performed no fresh review, so the receipt proves nothing.
         return None
     return raw
 
