@@ -765,7 +765,7 @@ def test_boundary_rejects_invalid_profile_for_non_code_commit(repo: Path) -> Non
     profile_path = repo / ".hermes" / "gate.toml"
     profile_path.write_text(
         profile_path.read_text(encoding="utf-8").replace(
-            'provider = "coderabbit"', 'provider = "hermes-pr-review"'
+            'provider = "coderabbit"', 'provider = "unknown-review"'
         ),
         encoding="utf-8",
     )
@@ -1009,13 +1009,13 @@ def test_config_rejects_unsupported_review_provider(repo: Path) -> None:
     profile_path = repo / ".hermes" / "gate.toml"
     profile_path.write_text(
         profile_path.read_text(encoding="utf-8")
-        .replace('provider = "coderabbit"', 'provider = "hermes-pr-review"')
-        .replace('argv = ["coderabbit", "review", "--agent"]', 'argv = ["hermes-pr-review"]'),
+        .replace('provider = "coderabbit"', 'provider = "unknown-review"')
+        .replace('argv = ["coderabbit", "review", "--agent"]', 'argv = ["unknown-review"]'),
         encoding="utf-8",
     )
     (repo / "source.py").write_text("ok = True\n", encoding="utf-8")
 
-    with pytest.raises(ConfigError, match=r'review\.provider "hermes-pr-review".*supported: coderabbit'):
+    with pytest.raises(ConfigError, match=r'review\.provider "unknown-review".*supported: coderabbit'):
         load_config(repo)
     for command in (fast, review):
         outcome = command(repo)

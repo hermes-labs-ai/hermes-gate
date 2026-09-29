@@ -213,15 +213,42 @@ use an installed `hermes-pr-review` fallback. The `jsonl` provider accepts a
 local reviewer command with an explicit exact-diff completion claim. Unparseable,
 timed-out, or unavailable review output is never relabeled PASS.
 
-`review.provider` names that output contract and must be `coderabbit` or `jsonl`;
+`review.provider` names that output contract and must be `coderabbit`, `jsonl`, or `hermes-pr-review`;
 `review.argv[0]` names the executable and may differ (for example a wrapper or
 the `cr` alias). Any other provider name is a profile error: `fast`, `review`,
 `full`, `repair`, and `boundary` all return `ERROR` with
 `invalid profile: review.provider …`, and `doctor` reports `profile.status:
 ERROR`, because a command the engine cannot bind to the diff or parse can only
 ever produce an unavailable or wrong review. `doctor` probes the executable the
-profile names, resolved the same way `review` launches it. For `jsonl`, doctor
+profile names, resolved the same way `review` launches it. For `jsonl` and `hermes-pr-review`, doctor
 reports executable availability and does not call a provider-specific auth command.
+
+The declared `hermes-pr-review` provider uses the same installed adapter as the
+internal fallback, with a clean committed comparison and its validated receipt:
+
+```toml
+[review]
+provider = "hermes-pr-review"
+argv = ["hermes-pr-review"]
+model = "claude-sonnet-5"
+timeout_seconds = 180.0
+```
+
+Gate supplies the repository, exact base, and a fresh output directory under the
+Git directory. Models beginning with `claude` select the subscription-backed
+Claude runner; other models select Codex (default `gpt-5.6-terra`). Gate requires
+zero exit status and a validated receipt matching the head, base, model, engine,
+reviewed paths, and review bytes. Missing or unevaluated evidence remains unavailable.
+Adapter `ERROR` and `WARNING` findings map to Gate `major`/`correctness`; `INFO`
+maps to `minor`/`correctness`. The configured material severity and category filters
+still apply, and suppressed findings remain counted in the receipt. This means a
+custom filter can accept adapter findings outside the owner's material policy.
+Declared internal models must be nonempty strings that do not begin with `-`; their
+spelling is preserved. Other providers continue to ignore this unused model option.
+This provider does not fall back to an external reviewer. Changing the model
+invalidates receipt reuse, but does not reset the two completed semantic attempts
+allowed for the same provider and exact diff. Switching models after that budget
+is exhausted remains parked; infrastructure failures do not spend that budget.
 
 For a local reviewer, configure the profile as follows:
 
