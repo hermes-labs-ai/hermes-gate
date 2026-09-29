@@ -2,8 +2,6 @@
 
 <!-- Instruction contract v1.0 — 2026-09-09 -->
 
-Priority order: preserve receipt integrity and the `gate-result/v1` contract; then public CLI behavior; then minimize the diff. Treat each user request as an independent task and carry prior task state forward only when the user explicitly asks.
-
 Priority order: preserve receipt integrity and safety boundaries; preserve public API
 behavior; then minimize the diff. Treat each user request as an independent task and
 carry prior task state forward only when the user explicitly asks.
