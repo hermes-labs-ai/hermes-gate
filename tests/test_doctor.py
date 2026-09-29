@@ -111,3 +111,21 @@ def test_diagnose_reports_auth_for_the_configured_review_executable(
     assert report["provider"]["binary"] == "/opt/bin/cr"
     assert report["provider"]["status"] == "AUTHENTICATED"
     assert report["profile"]["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "binary, expected", [("/opt/bin/hermes-pr-review", "AVAILABLE"), (None, "NOT_CONFIGURED")]
+)
+def test_declared_internal_provider_availability_without_auth_probe(
+    tmp_path, monkeypatch, binary, expected
+):
+    root = _repo(tmp_path, provider="hermes-pr-review", argv=["hermes-pr-review"])
+    monkeypatch.setattr("hermes_gate.doctor._provider_executable", lambda name, root: binary)
+
+    def unexpected_auth(*args, **kwargs):
+        pytest.fail("declared internal provider must not invoke CodeRabbit auth")
+
+    monkeypatch.setattr("hermes_gate.doctor.run_argv", unexpected_auth)
+    report = diagnose(root)
+    assert report["provider"]["status"] == expected
+    assert report["provider"]["binary"] == binary
