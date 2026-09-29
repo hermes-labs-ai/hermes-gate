@@ -234,8 +234,16 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
     internal_output = None
     if config.review.provider == "hermes-pr-review":
         internal_parent = git_dir(root) / "hermes-gate" / "providers" / "hermes-pr-review" / digest
-        internal_parent.mkdir(parents=True, exist_ok=True)
-        internal_output = Path(tempfile.mkdtemp(prefix="declared-", dir=internal_parent))
+        try:
+            internal_parent.mkdir(parents=True, exist_ok=True)
+            internal_output = Path(tempfile.mkdtemp(prefix="declared-", dir=internal_parent))
+        except OSError as exc:
+            return result(
+                "review",
+                Status.REVIEW_UNAVAILABLE,
+                started,
+                reason=f"cannot create internal review evidence directory: {exc}",
+            )
         engine = "claude" if config.review.model.startswith("claude") else "codex"
         provider_argv = (
             *config.review.argv,
@@ -402,7 +410,8 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
     for kind in requirements:
         receipt = valid_receipt(root, kind, digest)
         if receipt and (
-            kind != "review" or _review_provider_matches(receipt, config.review.provider, config.review.model)
+            kind != "review"
+            or _review_provider_matches(receipt, config.review.provider, config.review.model)
         ):
             continue
         if action == "commit" and _receipt_covers(root, kind, raw_selected):
@@ -424,7 +433,10 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
 def _review_provider_matches(
     receipt: dict[str, Any], configured_provider: str, configured_model: str | None = None
 ) -> bool:
-    if configured_provider == "hermes-pr-review" and receipt.get("configured_model") != configured_model:
+    if (
+        configured_provider == "hermes-pr-review"
+        and receipt.get("configured_model") != configured_model
+    ):
         return False
     recorded = receipt.get("configured_provider")
     if isinstance(recorded, str):
@@ -596,7 +608,7 @@ def _normalize_internal_review(
             or receipt.get("engine") != engine
             or receipt.get("model") != config.review.model
             or receipt.get("review_sha256") != hashlib.sha256(review_bytes).hexdigest()
-            or set(receipt.get("changed_paths", [])) != set(selected)
+            or not set(selected).issubset(set(receipt.get("changed_paths", [])))
             or raw.get("reviewed_head_sha") != head(root)
             or raw.get("base_sha") != base
             or raw.get("verdict") not in {"PASS", "FINDINGS"}
@@ -605,6 +617,8 @@ def _normalize_internal_review(
             return unavailable
         findings = raw.get("findings")
         if not isinstance(findings, list) or any(not isinstance(f, dict) for f in findings):
+            return unavailable
+        if any(f.get("severity") not in {"ERROR", "WARNING", "INFO"} for f in findings):
             return unavailable
         if (raw["verdict"] == "PASS") != (not findings):
             return unavailable

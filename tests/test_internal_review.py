@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 import pytest
 from hermes_gate.config import load_config
-from hermes_gate.engine import fast, review
+from hermes_gate.engine import _review_provider_matches, fast, review
 from hermes_gate.execution import Execution
 
 
@@ -87,6 +87,25 @@ def fake_adapter(monkeypatch, defect=None):
             receipt["engine"] = "wrong"
         if defect == "paths":
             receipt["changed_paths"] = []
+        if defect in {"material", "advisory", "unknown-severity", "pass-with-findings"}:
+            raw["findings"] = [
+                {
+                    "path": "source.py",
+                    "line": 1,
+                    "title": "test",
+                    "body": "test",
+                    "severity": {
+                        "material": "ERROR",
+                        "advisory": "INFO",
+                        "unknown-severity": "error",
+                        "pass-with-findings": "ERROR",
+                    }[defect],
+                }
+            ]
+            if defect != "pass-with-findings":
+                raw["verdict"] = receipt["verdict"] = "FINDINGS"
+        if defect == "extra-path":
+            receipt["changed_paths"].append("excluded.md")
         data = json.dumps(raw).encode()
         (output / "review.json").write_bytes(data)
         receipt["review_sha256"] = hashlib.sha256(data).hexdigest()
@@ -94,7 +113,14 @@ def fake_adapter(monkeypatch, defect=None):
             receipt["review_sha256"] = "wrong"
         if defect != "missing":
             (output / "RECEIPT.json").write_text(json.dumps(receipt))
-        return Execution(tuple(argv), 0, 0, "", "")
+        return Execution(
+            tuple(argv),
+            1 if defect == "exit-after-files" else 0,
+            0,
+            "",
+            "",
+            timed_out=defect == "timeout-after-files",
+        )
 
     monkeypatch.setattr("hermes_gate.engine.run_argv", run)
     monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *a: "test")
@@ -134,3 +160,27 @@ def test_dirty_adapter_not_invoked(repo, monkeypatch):
     calls = fake_adapter(monkeypatch)
     assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
     assert not calls
+
+
+@pytest.mark.parametrize(
+    "defect", ["exit-after-files", "timeout-after-files", "unknown-severity", "pass-with-findings"]
+)
+def test_valid_files_do_not_override_failed_execution_or_protocol(repo, monkeypatch, defect):
+    assert fast(repo)["status"] == "PASS"
+    fake_adapter(monkeypatch, defect)
+    assert review(repo)["status"] == "REVIEW_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "defect, expected", [("material", "FAIL"), ("advisory", "PASS"), ("extra-path", "PASS")]
+)
+def test_findings_and_full_receipt_scope(repo, monkeypatch, defect, expected):
+    assert fast(repo)["status"] == "PASS"
+    fake_adapter(monkeypatch, defect)
+    assert review(repo)["status"] == expected
+
+
+def test_declared_receipt_model_binding():
+    receipt = {"configured_provider": "hermes-pr-review", "configured_model": "claude-sonnet-5"}
+    assert _review_provider_matches(receipt, "hermes-pr-review", "claude-sonnet-5")
+    assert not _review_provider_matches(receipt, "hermes-pr-review", "gpt-5.6-terra")
