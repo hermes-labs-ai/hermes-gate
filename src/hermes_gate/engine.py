@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
@@ -593,14 +594,29 @@ def _fallback_review(
     execution = run_argv(
         argv, cwd=root, timeout_seconds=config.review.timeout_seconds + 5, env=environment
     )
-    if execution.unavailable or execution.timed_out:
+    if execution.unavailable or execution.timed_out or execution.returncode != 0:
         return None
     if output_dir is not None:
         try:
-            raw = json.loads((output_dir / "review.json").read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            review_bytes = (output_dir / "review.json").read_bytes()
+            raw = json.loads(review_bytes)
+            child_receipt = json.loads((output_dir / "RECEIPT.json").read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError, UnicodeDecodeError):
             return None
-        if raw.get("verdict") == "UNEVALUATED":
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(child_receipt, dict)
+            or child_receipt.get("validated") is not True
+            or child_receipt.get("outer_workflow_status") != "VALIDATED"
+            or child_receipt.get("base_sha") != fallback_base
+            or child_receipt.get("head_sha") != head(root)
+            or child_receipt.get("review_sha256") != hashlib.sha256(review_bytes).hexdigest()
+            or child_receipt.get("verdict") != raw.get("verdict")
+            or raw.get("verdict") not in {"PASS", "FINDINGS"}
+            or not isinstance(raw.get("findings"), list)
+            or any(not isinstance(finding, dict) for finding in raw["findings"])
+            or child_receipt.get("finding_count") != len(raw["findings"])
+        ):
             return None
         events: list[dict[str, Any]] = []
         for finding in raw.get("findings", []):

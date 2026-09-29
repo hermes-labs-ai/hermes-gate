@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import runpy
@@ -740,8 +741,22 @@ def test_review_runs_automatic_fallback_for_nonempty_comparison(
         if argv[0] == "hermes-pr-review":
             output_dir = Path(argv[argv.index("--output-dir") + 1])
             output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "review.json").write_text(
-                '{"verdict":"PASS","findings":[]}\n', encoding="utf-8"
+            review_path = output_dir / "review.json"
+            review_path.write_text('{"verdict":"PASS","findings":[]}\n', encoding="utf-8")
+            (output_dir / "RECEIPT.json").write_text(
+                json.dumps({
+                    "validated": True,
+                    "outer_workflow_status": "VALIDATED",
+                    "verdict": "PASS",
+                    "finding_count": 0,
+                    "base_sha": argv[argv.index("--base") + 1],
+                    "head_sha": subprocess.run(
+                        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                        check=True, capture_output=True, text=True,
+                    ).stdout.strip(),
+                    "review_sha256": hashlib.sha256(review_path.read_bytes()).hexdigest(),
+                }),
+                encoding="utf-8",
             )
             return Execution(argv, 0, 0, "", "")
         return Execution(argv, 0, 0, '{"type":"error"}\n', "")
@@ -758,6 +773,66 @@ def test_review_runs_automatic_fallback_for_nonempty_comparison(
     assert outcome["receipt"]["fallback_attempted"] is True
     assert outcome["receipt"]["fallback_provider"] == "hermes-pr-review"
     assert outcome["receipt"]["fallback_reason"] == ""
+
+
+@pytest.mark.parametrize("fallback_exit", [0, 2])
+def test_automatic_fallback_never_accepts_unvalidated_raw_pass(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, fallback_exit: int
+) -> None:
+    write_profile(repo)
+    source = repo / "source.py"
+    source.write_text("value = 'base'\n", encoding="utf-8")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "base")
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    source.write_text("value = 'head'\n", encoding="utf-8")
+    git(repo, "commit", "-am", "head")
+    assert fast(repo, base=base)["status"] == "PASS"
+    fallback_calls = 0
+
+    def provider(argv: tuple[str, ...], **kwargs: object) -> Execution:
+        nonlocal fallback_calls
+        if argv[0] == "hermes-pr-review":
+            fallback_calls += 1
+            output_dir = Path(argv[argv.index("--output-dir") + 1])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            review_path = output_dir / "review.json"
+            review_path.write_text(
+                '{"verdict":"PASS","findings":[]}\n', encoding="utf-8"
+            )
+            if fallback_calls == 1:
+                return Execution(argv, fallback_exit, 0, "", "invalid review schema")
+            (output_dir / "RECEIPT.json").write_text(
+                json.dumps({
+                    "validated": True,
+                    "outer_workflow_status": "VALIDATED",
+                    "verdict": "PASS",
+                    "finding_count": 0,
+                    "base_sha": base,
+                    "head_sha": subprocess.run(
+                        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                        check=True, capture_output=True, text=True,
+                    ).stdout.strip(),
+                    "review_sha256": hashlib.sha256(review_path.read_bytes()).hexdigest(),
+                }),
+                encoding="utf-8",
+            )
+            return Execution(argv, 0, 0, "", "")
+        return Execution(argv, 0, 0, '{"type":"error"}\n', "")
+
+    monkeypatch.setattr("hermes_gate.engine.shutil.which", lambda *a, **kw: "/usr/bin/hermes-pr-review")
+    monkeypatch.setattr("hermes_gate.engine._tool_version", lambda *args, **kwargs: "test")
+    monkeypatch.setattr("hermes_gate.engine.run_argv", provider)
+    outcome = review(repo, base=base)
+
+    assert outcome["status"] == "REVIEW_UNAVAILABLE"
+    assert outcome["receipt"]["status"] == "REVIEW_UNAVAILABLE"
+    assert outcome["receipt"]["fallback_attempted"] is True
+    assert outcome["receipt"]["fallback_reason"]
+    assert review(repo, base=base)["status"] == "PASS"
 
 
 def test_boundary_rejects_invalid_profile_for_non_code_commit(repo: Path) -> None:
