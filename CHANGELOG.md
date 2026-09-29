@@ -4,7 +4,7 @@ All notable changes to HermesGate will be documented here.
 
 The format follows Keep a Changelog, and the project uses Semantic Versioning.
 
-## [Unreleased]
+## [0.1.8] - 2026-09-29
 
 ### Fixed
 
@@ -192,7 +192,8 @@ The format follows Keep a Changelog, and the project uses Semantic Versioning.
 - Optional isolated PyGate 0.2.0+ and QuickGate.js 0.2.3+ adapters.
 - Git-internal runtime state, command-version receipts, OSS policy files, and package schema data.
 
-[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/hermes-labs-ai/hermes-gate/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.8
 [0.1.7]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.7
 [0.1.6]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.6
 [0.1.5]: https://github.com/hermes-labs-ai/hermes-gate/releases/tag/v0.1.5
