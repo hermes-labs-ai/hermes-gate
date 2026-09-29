@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from hermes_gate.config import load_config
+from hermes_gate.config import ReviewSpec, load_config
 from hermes_gate.engine import _review_provider_matches, fast, review
 from hermes_gate.execution import Execution
 
@@ -255,3 +255,33 @@ def test_model_change_does_not_reset_exhausted_semantic_budget(repo, monkeypatch
     model[0] = "gpt-5.6-terra"
     assert review(repo)["status"] == "PARKED"
     assert len(calls) == 2
+
+
+def test_review_spec_preserves_complete_old_positional_constructor():
+    spec = ReviewSpec(
+        "coderabbit", ("review-tool",), 42, ("major",), ("security",), ("fallback-tool",)
+    )
+    assert spec.provider == "coderabbit"
+    assert spec.argv == ("review-tool",)
+    assert spec.timeout_seconds == 42
+    assert spec.material_severities == ("major",)
+    assert spec.material_categories == ("security",)
+    assert spec.fallback_argv == ("fallback-tool",)
+    assert spec.model == "gpt-5.6-terra"
+
+
+def test_adapter_semantic_deadline_unchanged_with_outer_serialization_grace(repo, monkeypatch):
+    from hermes_gate import engine
+
+    assert fast(repo)["status"] == "PASS"
+    fake_adapter(monkeypatch)
+    fake = engine.run_argv
+    deadline = load_config(repo).review.timeout_seconds
+
+    def checked(argv, **kwargs):
+        assert float(argv[argv.index("--deadline-seconds") + 1]) == deadline
+        assert kwargs["timeout_seconds"] == deadline + 5
+        return fake(argv, **kwargs)
+
+    monkeypatch.setattr(engine, "run_argv", checked)
+    assert review(repo)["status"] == "PASS"

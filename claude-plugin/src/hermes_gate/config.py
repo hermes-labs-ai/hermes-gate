@@ -52,7 +52,6 @@ class ReviewSpec:
     provider: str = "coderabbit"
     argv: tuple[str, ...] = ("coderabbit", "review", "--agent")
     timeout_seconds: float = 180.0
-    model: str = "gpt-5.6-terra"
     material_severities: tuple[str, ...] = ("critical", "major")
     material_categories: tuple[str, ...] = (
         "correctness",
@@ -62,6 +61,7 @@ class ReviewSpec:
         "api-contract",
     )
     fallback_argv: tuple[str, ...] = ()
+    model: str = "gpt-5.6-terra"
 
 
 @dataclass(frozen=True)

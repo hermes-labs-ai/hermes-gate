@@ -269,7 +269,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
     execution = run_argv(
         provider_argv,
         cwd=root,
-        timeout_seconds=config.review.timeout_seconds,
+        timeout_seconds=config.review.timeout_seconds + (5 if internal_output is not None else 0),
         env=provider_env,
     )
     if execution.unavailable or execution.timed_out or execution.output_truncated:
