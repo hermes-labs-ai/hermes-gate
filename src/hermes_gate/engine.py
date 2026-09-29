@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import shutil
 import time
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -31,9 +33,7 @@ from .repo_runner import run as run_repository
 from .status import Status
 
 
-def fast(
-    root: Path, *, files: list[str] | None = None, base: str | None = None
-) -> dict[str, Any]:
+def fast(root: Path, *, files: list[str] | None = None, base: str | None = None) -> dict[str, Any]:
     started = time.monotonic()
     try:
         config = load_config(root)
@@ -206,12 +206,14 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             reason="matching fast PASS required; run hermes-gate fast",
         )
     cached = valid_receipt(root, "review", digest)
-    if cached and _review_provider_matches(cached, config.review.provider):
+    if cached and _review_provider_matches(cached, config.review.provider, config.review.model):
         return result("review", Status.PASS, started, receipt=cached, cached=True)
     budget_path = _state_file(root, "review-budget.json")
     budget = _read_json(budget_path)
     attempts_by_digest = _review_attempts_by_digest(budget)
-    attempt_key = digest if config.review.provider == "coderabbit" else f"{config.review.provider}:{digest}"
+    attempt_key = (
+        digest if config.review.provider == "coderabbit" else f"{config.review.provider}:{digest}"
+    )
     if attempts_by_digest.get(attempt_key, 0) >= 2:
         return result(
             "review",
@@ -220,8 +222,35 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             reason="one initial review and one re-review exhausted for this diff; run hermes-gate full",
         )
 
+    if config.review.provider == "hermes-pr-review" and changed_paths(root):
+        return result(
+            "review",
+            Status.REVIEW_UNAVAILABLE,
+            started,
+            reason="hermes-pr-review requires a clean committed comparison",
+        )
     provider_version = _tool_version(config.review.argv[0], root)
     provider_argv = _provider_review_argv(config, root, base=scope_base)
+    internal_output = None
+    if config.review.provider == "hermes-pr-review":
+        internal_parent = git_dir(root) / "hermes-gate" / "providers" / "hermes-pr-review" / digest
+        internal_parent.mkdir(parents=True, exist_ok=True)
+        internal_output = Path(tempfile.mkdtemp(prefix="declared-", dir=internal_parent))
+        engine = "claude" if config.review.model.startswith("claude") else "codex"
+        provider_argv = (
+            *config.review.argv,
+            "--repo",
+            str(root),
+            "--base",
+            scope_base,
+            "--output-dir",
+            str(internal_output),
+            f"--run-{engine}",
+            "--model",
+            config.review.model,
+            "--deadline-seconds",
+            str(config.review.timeout_seconds),
+        )
     provider_env = None
     if config.review.provider == "jsonl":
         provider_env = {
@@ -245,6 +274,8 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             material_severities=config.review.material_severities,
             material_categories=config.review.material_categories,
         )
+    elif internal_output is not None:
+        normalized = _normalize_internal_review(config, root, scope_base, internal_output, selected)
     elif config.review.provider == "jsonl":
         normalized = normalize_jsonl_output(
             execution.stdout,
@@ -283,7 +314,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
             execution, normalized, provider, provider_version = fallback
         elif fallback_attempted:
             fallback_reason = "fallback provider returned no usable review result"
-    if config.review.provider == "jsonl":
+    if config.review.provider in {"jsonl", "hermes-pr-review"}:
         post_digest, failure = _digest_or_error(root, selected, "review", started, base=scope_base)
         if failure:
             return failure
@@ -313,6 +344,7 @@ def review(root: Path, *, base: str | None = None) -> dict[str, Any]:
         extra={
             "provider": provider,
             "configured_provider": config.review.provider,
+            "configured_model": config.review.model if internal_output is not None else None,
             "suppressed_count": normalized.suppressed_count,
             "reviewed_paths": selected,
             "scope_base": scope_base,
@@ -369,7 +401,9 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
     missing: list[str] = []
     for kind in requirements:
         receipt = valid_receipt(root, kind, digest)
-        if receipt and (kind != "review" or _review_provider_matches(receipt, config.review.provider)):
+        if receipt and (
+            kind != "review" or _review_provider_matches(receipt, config.review.provider, config.review.model)
+        ):
             continue
         if action == "commit" and _receipt_covers(root, kind, raw_selected):
             continue
@@ -387,7 +421,11 @@ def boundary(root: Path, action: str) -> dict[str, Any]:
     return result("boundary", Status.PASS, started, required=requirements)
 
 
-def _review_provider_matches(receipt: dict[str, Any], configured_provider: str) -> bool:
+def _review_provider_matches(
+    receipt: dict[str, Any], configured_provider: str, configured_model: str | None = None
+) -> bool:
+    if configured_provider == "hermes-pr-review" and receipt.get("configured_model") != configured_model:
+        return False
     recorded = receipt.get("configured_provider")
     if isinstance(recorded, str):
         return recorded == configured_provider
@@ -532,6 +570,65 @@ def _execution_dict(execution: Execution, name: str) -> dict[str, Any]:
     }
 
 
+def _normalize_internal_review(
+    config: GateConfig, root: Path, base: str, output: Path, selected: list[str]
+) -> NormalizedReview:
+    """Accept only the existing adapter's validated, exact-boundary receipt."""
+    unavailable = NormalizedReview(
+        Status.REVIEW_UNAVAILABLE, (), 0, "internal review missing or invalid bound receipt"
+    )
+    try:
+        review_bytes = (output / "review.json").read_bytes()
+        raw = json.loads(review_bytes)
+        receipt = json.loads((output / "RECEIPT.json").read_text(encoding="utf-8"))
+        engine = "claude" if config.review.model.startswith("claude") else "codex"
+        if not isinstance(raw, dict) or not isinstance(receipt, dict):
+            return unavailable
+        if (
+            raw.get("schema_version") != 1
+            or receipt.get("schema_version") != 1
+            or receipt.get("validated") is not True
+            or receipt.get("outer_workflow_status") != "VALIDATED"
+            or receipt.get("github_mutation") is not False
+            or receipt.get("repo") != str(root.resolve())
+            or receipt.get("head_sha") != head(root)
+            or receipt.get("base_sha") != base
+            or receipt.get("engine") != engine
+            or receipt.get("model") != config.review.model
+            or receipt.get("review_sha256") != hashlib.sha256(review_bytes).hexdigest()
+            or set(receipt.get("changed_paths", [])) != set(selected)
+            or raw.get("reviewed_head_sha") != head(root)
+            or raw.get("base_sha") != base
+            or raw.get("verdict") not in {"PASS", "FINDINGS"}
+            or receipt.get("verdict") != raw.get("verdict")
+        ):
+            return unavailable
+        findings = raw.get("findings")
+        if not isinstance(findings, list) or any(not isinstance(f, dict) for f in findings):
+            return unavailable
+        if (raw["verdict"] == "PASS") != (not findings):
+            return unavailable
+        events = [
+            {
+                "type": "finding",
+                "severity": "major" if f.get("severity") in {"ERROR", "WARNING"} else "minor",
+                "fileName": f.get("path", ""),
+                "line": f.get("line"),
+                "message": f"correctness: {f.get('title', '')} {f.get('body', '')}",
+                "category": "correctness",
+            }
+            for f in findings
+        ]
+        events.append({"type": "complete"})
+        return normalize_coderabbit_output(
+            events,
+            material_severities=config.review.material_severities,
+            material_categories=config.review.material_categories,
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return unavailable
+
+
 def _automatic_fallback_base(root: Path, base: str | None) -> str | None:
     """Return a non-empty committed comparison base for the automatic fallback."""
     if base is None:
@@ -545,9 +642,7 @@ def _automatic_fallback_base(root: Path, base: str | None) -> str | None:
     return exact_base if diff.returncode == 1 else None
 
 
-def _fallback_review(
-    config: GateConfig, root: Path, digest: str, *, base: str | None = None
-):
+def _fallback_review(config: GateConfig, root: Path, digest: str, *, base: str | None = None):
     argv = config.review.fallback_argv
     environment: dict[str, str] | None = None
     if base is not None:
@@ -664,9 +759,7 @@ def _provider_review_argv(
             rewritten.append("--committed")
         return (*rewritten, "--base-commit", exact_base)
     boundary_flags = ("--base", "--base-commit", "--committed", "--uncommitted")
-    if any(
-        item == flag or item.startswith(f"{flag}=") for item in argv for flag in boundary_flags
-    ):
+    if any(item == flag or item.startswith(f"{flag}=") for item in argv for flag in boundary_flags):
         return argv
     branch = git(root, "branch", "--show-current", check=False).stdout.decode().strip()
     base_selector: tuple[str, ...] = ("--base", branch) if branch else ()

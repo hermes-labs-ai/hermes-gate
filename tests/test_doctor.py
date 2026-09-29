@@ -59,13 +59,13 @@ def test_provider_auth_status_falls_back_for_legacy_output() -> None:
 def test_diagnose_reports_unsupported_review_provider_as_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = _repo(tmp_path, provider="hermes-pr-review", argv=["hermes-pr-review"])
+    root = _repo(tmp_path, provider="unknown-review", argv=["unknown-review"])
     monkeypatch.setattr("hermes_gate.doctor._provider_executable", lambda name, root: None)
 
     report = diagnose(root)
 
     assert report["profile"]["status"] == "ERROR"
-    assert 'review.provider "hermes-pr-review"' in report["profile"]["reason"]
+    assert 'review.provider "unknown-review"' in report["profile"]["reason"]
     assert report["status"] == "ERROR"
 
 

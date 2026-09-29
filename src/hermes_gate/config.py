@@ -15,7 +15,7 @@ class ConfigError(ValueError):
 # parse; `review.argv[0]` names the executable and may differ. A name the engine
 # has no contract for would run its argv verbatim and could only ever produce an
 # unavailable or wrong review, so it is a profile error rather than a runtime one.
-SUPPORTED_REVIEW_PROVIDERS: tuple[str, ...] = ("coderabbit", "jsonl")
+SUPPORTED_REVIEW_PROVIDERS: tuple[str, ...] = ("coderabbit", "jsonl", "hermes-pr-review")
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ class ReviewSpec:
     provider: str = "coderabbit"
     argv: tuple[str, ...] = ("coderabbit", "review", "--agent")
     timeout_seconds: float = 180.0
+    model: str = "gpt-5.6-terra"
     material_severities: tuple[str, ...] = ("critical", "major")
     material_categories: tuple[str, ...] = (
         "correctness",
@@ -180,6 +181,7 @@ def load_config(root: Path) -> GateConfig:
         ),
         review=ReviewSpec(
             provider=provider,
+            model=str(review.get("model", "gpt-5.6-terra")),
             argv=_strings(review.get("argv", list(ReviewSpec.argv)), "review.argv"),
             timeout_seconds=float(review.get("timeout_seconds", 180.0)),
             material_severities=tuple(
